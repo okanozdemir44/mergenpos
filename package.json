@@ -1,0 +1,31 @@
+{
+  "name": "mergen-pos",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:push": "npx supabase db push --linked",
+    "db:types": "npx supabase gen types typescript --linked > src/types/database.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "next": "^15.5.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "eslint": "^9.34.0",
+    "eslint-config-next": "^15.5.2",
+    "pg": "^8.23.0",
+    "supabase": "^2.116.0",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2"
+  }
+}
