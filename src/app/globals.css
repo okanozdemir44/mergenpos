@@ -1366,11 +1366,18 @@ input {
   }
 
   .pos-sidebar,
-  .pos-app,
-  .pos-main,
-  .page-shell,
+  .salon-tab-header,
   .adisyon {
     display: none !important;
+  }
+
+  .pos-app,
+  .pos-main,
+  .page-shell {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    display: block !important;
   }
 }
 
