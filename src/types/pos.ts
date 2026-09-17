@@ -59,6 +59,7 @@ export type KitchenTicket = {
   status: OrderItemStatus;
   item_name: string;
   table_name: string | null;
+  order_number: number | null;
   order_created_at: string;
   order_type: OrderType;
 };
@@ -67,6 +68,7 @@ export type OrderRow = {
   id: string;
   restaurant_id: string;
   table_id: string | null;
+  order_number: number | null;
   order_type: OrderType;
   status: OrderStatus;
   total_amount: number;

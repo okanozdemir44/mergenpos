@@ -23,6 +23,7 @@ const COLUMNS: Column[] = [
 
 type Props = {
   orderType: OrderType;
+  hideHeader?: boolean;
 };
 
 function formatElapsedTime(createdAt: string): string {
@@ -37,7 +38,7 @@ function formatElapsedTime(createdAt: string): string {
   return `${diffHours} saat önce`;
 }
 
-export function ServiceKanban({ orderType }: Props) {
+export function ServiceKanban({ orderType, hideHeader = false }: Props) {
   const router = useRouter();
   const { loading: staffLoading, staff, error: staffError, userId } = useStaffSession();
   const [orders, setOrders] = useState<OrderRow[]>([]);
@@ -161,29 +162,35 @@ export function ServiceKanban({ orderType }: Props) {
 
   return (
     <div>
-      <div className="salon-top">
-        <div>
-          <p className="salon-kicker">Servis</p>
-          <h1 className="salon-title">{orderType === "takeaway" ? "Gel Al" : "Paket"}</h1>
+      {!hideHeader && (
+        <div className="salon-top">
+          <div>
+            <p className="salon-kicker">Kurye Takip &amp; Teslimat</p>
+            <h1 className="salon-title">Paket Servis</h1>
+          </div>
+          <div className="pos-tabs">
+            <Link href="/salon" className="pos-tab">
+              ⚡ Hızlı Satış
+            </Link>
+            <Link href="/service" className="pos-tab pos-tab--active">
+              🛵 Paket (Kurye)
+            </Link>
+          </div>
+          <div>
+            <button
+              type="button"
+              className="login-button"
+              style={{ marginTop: 0 }}
+              onClick={newOrder}
+            >
+              + Yeni Sipariş Ekle
+            </button>
+          </div>
         </div>
-        <div className="pos-tabs">
-          <Link href="/salon" className="pos-tab">
-            Salon
-          </Link>
-          <Link
-            href="/service?tab=takeaway"
-            className={`pos-tab ${orderType === "takeaway" ? "pos-tab--active" : ""}`}
-          >
-            Gel Al
-          </Link>
-          <Link
-            href="/service?tab=delivery"
-            className={`pos-tab ${orderType === "delivery" ? "pos-tab--active" : ""}`}
-          >
-            Paket
-          </Link>
-        </div>
-        <div>
+      )}
+      {hideHeader && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 0 1rem" }}>
+          <h2 className="salon-title" style={{ margin: 0, fontSize: "1.25rem" }}>Paket &amp; Kurye Takip</h2>
           <button
             type="button"
             className="login-button"
@@ -193,7 +200,7 @@ export function ServiceKanban({ orderType }: Props) {
             + Yeni Sipariş Ekle
           </button>
         </div>
-      </div>
+      )}
 
       {error && <div className="salon-banner salon-banner--error">{error}</div>}
 

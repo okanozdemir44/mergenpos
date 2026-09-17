@@ -22,12 +22,14 @@ type RawRow = {
         id: string;
         created_at: string;
         order_type: "dine_in" | "takeaway" | "delivery";
+        order_number?: number | null;
         restaurant_tables: { name: string } | { name: string }[] | null;
       }
     | {
         id: string;
         created_at: string;
         order_type: "dine_in" | "takeaway" | "delivery";
+        order_number?: number | null;
         restaurant_tables: { name: string } | { name: string }[] | null;
       }[]
     | null;
@@ -54,6 +56,7 @@ function mapRow(row: RawRow): KitchenTicket {
     status: row.status,
     item_name: menuItem?.name ?? "Ürün",
     table_name: table?.name ?? null,
+    order_number: order?.order_number ?? null,
     order_created_at: order?.created_at ?? new Date().toISOString(),
     order_type: order?.order_type ?? "dine_in",
   };
@@ -82,7 +85,10 @@ export function KitchenBoard() {
     setLoading(true);
     setError(null);
 
-    const { data, error: queryError } = await supabase
+    let rows: RawRow[] | null = null;
+    let queryError: { message: string } | null = null;
+
+    const res = await supabase
       .from("order_items")
       .select(
         `
@@ -99,6 +105,7 @@ export function KitchenBoard() {
           id,
           created_at,
           order_type,
+          order_number,
           restaurant_tables ( name )
         )
       `,
@@ -107,6 +114,38 @@ export function KitchenBoard() {
       .in("status", ["pending", "preparing"])
       .order("id", { ascending: true });
 
+    if (res.error && /order_number/i.test(res.error.message)) {
+      const fallback = await supabase
+        .from("order_items")
+        .select(
+          `
+          id,
+          order_id,
+          restaurant_id,
+          menu_item_id,
+          quantity,
+          note,
+          unit_price,
+          status,
+          menu_items ( name ),
+          orders!inner (
+            id,
+            created_at,
+            order_type,
+            restaurant_tables ( name )
+          )
+        `,
+        )
+        .eq("restaurant_id", restaurantId)
+        .in("status", ["pending", "preparing"])
+        .order("id", { ascending: true });
+      rows = (fallback.data as unknown as RawRow[]) ?? null;
+      queryError = fallback.error;
+    } else {
+      rows = (res.data as unknown as RawRow[]) ?? null;
+      queryError = res.error;
+    }
+
     if (queryError) {
       setError(queryError.message);
       setTickets([]);
@@ -114,7 +153,7 @@ export function KitchenBoard() {
       return;
     }
 
-    setTickets(sortTickets((data as RawRow[] | null)?.map(mapRow) ?? []));
+    setTickets(sortTickets(rows?.map(mapRow) ?? []));
     setLoading(false);
   }, []);
 

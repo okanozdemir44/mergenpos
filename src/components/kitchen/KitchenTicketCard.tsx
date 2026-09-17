@@ -20,7 +20,11 @@ export function KitchenTicketCard({ ticket, busy, onSetStatus }: Props) {
     <article className={`kds-card kds-card--${ticket.status}`}>
       <header className="kds-card__head">
         <div>
-          <p className="kds-card__table">{ticket.table_name ?? ticket.order_type}</p>
+          <p className="kds-card__table">
+            {ticket.order_number
+              ? `Sıra #${ticket.order_number}`
+              : (ticket.table_name ?? (ticket.order_type === "takeaway" ? "Gel Al" : ticket.order_type === "delivery" ? "Paket" : "Hızlı Satış"))}
+          </p>
           <p className="kds-card__meta">
             {ORDER_ITEM_STATUS_LABEL[ticket.status]} · {ageLabel(ticket.order_created_at)}
           </p>

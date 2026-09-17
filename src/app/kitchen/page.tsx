@@ -1,13 +1,5 @@
-import { KitchenBoard } from "@/components/kitchen/KitchenBoard";
-
-export const metadata = {
-  title: "Mutfak · Mergen POS",
-};
+import { redirect } from "next/navigation";
 
 export default function KitchenPage() {
-  return (
-    <main className="page-shell page-shell--wide">
-      <KitchenBoard />
-    </main>
-  );
+  redirect("/salon");
 }

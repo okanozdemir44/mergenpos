@@ -5,12 +5,10 @@ import { usePathname } from "next/navigation";
 import { useStaffSession } from "@/hooks/useStaffSession";
 
 const NAV = [
-  { href: "/salon", label: "Salon", icon: "▦" },
-  { href: "/service?tab=takeaway", label: "Gel Al", icon: "🥡", match: "/service" },
-  { href: "/service?tab=delivery", label: "Paket", icon: "🛵", match: "/service" },
-  { href: "/kitchen", label: "Mutfak", icon: "👨‍🍳" },
+  { href: "/salon", label: "Hızlı Satış", icon: "⚡" },
+  { href: "/salon", label: "Paket (Kurye)", icon: "🛵" },
   { href: "/reports", label: "Rapor", icon: "📊" },
-  { href: "/stock", label: "Stok", icon: "📦" },
+  { href: "/stock", label: "Menü Yönetimi", icon: "🗂️" },
 ] as const;
 
 export function PosShell({ children }: { children: React.ReactNode }) {

@@ -1,20 +1,13 @@
 import { Suspense } from "react";
 import { ServiceKanban } from "@/components/service/ServiceKanban";
 
-export const metadata = { title: "Gel-Al / Paket · Mergen POS" };
+export const metadata = { title: "Paket Servis (Kurye) · Mergen POS" };
 
-type Props = {
-  searchParams: Promise<{ tab?: string }>;
-};
-
-export default async function ServicePage({ searchParams }: Props) {
-  const { tab } = await searchParams;
-  const orderType = tab === "delivery" ? "delivery" : "takeaway";
-
+export default function ServicePage() {
   return (
     <main className="page-shell page-shell--wide">
       <Suspense fallback={<p className="salon-muted">Yükleniyor…</p>}>
-        <ServiceKanban orderType={orderType} />
+        <ServiceKanban orderType="delivery" />
       </Suspense>
     </main>
   );
