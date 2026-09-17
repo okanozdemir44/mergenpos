@@ -30,17 +30,7 @@ export function ManagerGate({
       </div>
     );
   }
-  if (staff.role !== "manager") {
-    return (
-      <div className="salon-banner salon-banner--error">
-        <strong>Sadece müdür</strong>
-        <p>Bu ekrana yalnızca manager rolü erişebilir.</p>
-        <Link href="/salon" className="salon-link">
-          Salon’a dön
-        </Link>
-      </div>
-    );
-  }
+  // Tüm personeller erişebilir (role kontrolü kaldırıldı)
 
   return <>{children}</>;
 }

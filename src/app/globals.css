@@ -164,6 +164,8 @@ input {
   height: 100vh;
   padding: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== Common ===== */
@@ -393,7 +395,8 @@ input {
 .adisyon {
   display: grid;
   grid-template-columns: 1fr 360px;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   background: var(--pos-bg);
 }
 

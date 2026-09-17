@@ -7,7 +7,7 @@ import { createBrowserClient } from "@/lib/supabase-browser";
 import { useStaffSession } from "@/hooks/useStaffSession";
 import { MenuPanel } from "@/components/orders/MenuPanel";
 import { formatTry } from "@/lib/money";
-import type { CartLine, MenuCategory, MenuItem, OrderType } from "@/types/pos";
+import type { CartLine, MenuCategory, MenuItem, OrderType, PaymentMethod } from "@/types/pos";
 
 function newLineKey(menuItemId: string) {
   return `${menuItemId}-${crypto.randomUUID()}`;
@@ -33,6 +33,8 @@ export function ServiceOrderEntry() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
 
   const total = useMemo(() => cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0), [cart]);
 
@@ -125,11 +127,13 @@ export function ServiceOrderEntry() {
         restaurant_id: staff.restaurant_id,
         table_id: null,
         order_type: orderType,
-        status: "hazirlaniyor",
+        status: "completed", // hızlı satış direkt tamamlanır
         total_amount: total,
         customer_name: customerName.trim() || null,
         customer_phone: customerPhone.trim() || null,
         delivery_address: orderType === "delivery" ? deliveryAddress.trim() || null : null,
+        payment_method: paymentMethod,
+        paid_at: new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -148,7 +152,7 @@ export function ServiceOrderEntry() {
         quantity: line.quantity,
         note: line.note.trim() || null,
         unit_price: line.unitPrice,
-        status: "pending",
+        status: "ready", // hazır
       })),
     );
 
@@ -159,6 +163,10 @@ export function ServiceOrderEntry() {
     }
 
     setSubmitting(false);
+    
+    // Fiş yazdırma işlemi (basitçe tarayıcı yazdır menüsü)
+    window.print();
+    
     router.push(`/service?tab=${orderType}`);
   }
 
@@ -233,7 +241,7 @@ export function ServiceOrderEntry() {
                     <span>{formatTry(line.unitPrice)}</span>
                     <div className="qty-control">
                       <button
-                        type="button"
+                         type="button"
                         onClick={() =>
                           setCart((p) =>
                             p
@@ -282,6 +290,26 @@ export function ServiceOrderEntry() {
               <span>Toplam</span>
               <strong>{formatTry(total)}</strong>
             </div>
+            
+            <div className="payment-options" style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", marginTop: "1rem" }}>
+              <button
+                type="button"
+                className={`ghost-btn ${paymentMethod === "cash" ? "active-payment" : ""}`}
+                style={{ flex: 1, backgroundColor: paymentMethod === "cash" ? "#e0e7ff" : "transparent", borderColor: paymentMethod === "cash" ? "#4f46e5" : "#e5e7eb", color: paymentMethod === "cash" ? "#4f46e5" : "inherit" }}
+                onClick={() => setPaymentMethod("cash")}
+              >
+                Nakit
+              </button>
+              <button
+                type="button"
+                className={`ghost-btn ${paymentMethod === "card" ? "active-payment" : ""}`}
+                style={{ flex: 1, backgroundColor: paymentMethod === "card" ? "#e0e7ff" : "transparent", borderColor: paymentMethod === "card" ? "#4f46e5" : "#e5e7eb", color: paymentMethod === "card" ? "#4f46e5" : "inherit" }}
+                onClick={() => setPaymentMethod("card")}
+              >
+                Kredi Kartı
+              </button>
+            </div>
+
             <button
               type="button"
               className="login-button"
@@ -305,7 +333,7 @@ export function ServiceOrderEntry() {
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="salon-title">Müşteri Bilgileri</h2>
+              <h2 className="salon-title">Müşteri Bilgileri & Ödeme</h2>
               <button
                 type="button"
                 className="modal-close"
@@ -350,7 +378,7 @@ export function ServiceOrderEntry() {
               )}
 
               <div className="order-cart__total" style={{ marginTop: "1.5rem" }}>
-                <span>Toplam</span>
+                <span>Toplam Ödenecek ({paymentMethod === "cash" ? "Nakit" : "Kredi Kartı"})</span>
                 <strong>{formatTry(total)}</strong>
               </div>
 
@@ -382,7 +410,7 @@ export function ServiceOrderEntry() {
                   void confirmOrder();
                 }}
               >
-                {submitting ? "Kaydediliyor…" : "Siparişi Kaydet"}
+                {submitting ? "İşleniyor…" : "Ödeme Al ve Fiş Çıkar"}
               </button>
             </div>
           </div>
@@ -391,3 +419,4 @@ export function ServiceOrderEntry() {
     </>
   );
 }
+
