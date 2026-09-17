@@ -2,14 +2,13 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createBrowserClient } from "@/lib/supabase-browser";
 
 export default function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/salon";
 
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,20 +18,27 @@ export default function LoginPageClient() {
     setLoading(true);
     setError(null);
 
-    const supabase = createBrowserClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
 
-    setLoading(false);
+      const data = await res.json();
 
-    if (signInError) {
-      setError(signInError.message);
-      return;
+      if (!res.ok) {
+        setError(data.error || "Giriş başarısız");
+        setLoading(false);
+        return;
+      }
+
+      // Success -> Redirect
+      router.replace(next);
+    } catch (err: any) {
+      setError("Bağlantı hatası");
+      setLoading(false);
     }
-
-    router.replace(next);
   }
 
   return (
@@ -45,13 +51,13 @@ export default function LoginPageClient() {
 
       <form className="login-form" onSubmit={onSubmit}>
         <label className="login-label">
-          E-posta
+          Kullanıcı Adı
           <input
             className="login-input"
-            type="email"
+            type="text"
             autoComplete="username"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             required
           />
         </label>

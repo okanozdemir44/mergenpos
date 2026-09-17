@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { createBrowserClient } from "@/lib/supabase-browser";
 import type { StaffMember } from "@/types/pos";
 
 type StaffState = {
@@ -20,69 +19,44 @@ export function useStaffSession() {
   });
 
   const refresh = useCallback(async () => {
-    const supabase = createBrowserClient();
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
+    try {
+      const res = await fetch("/api/auth/me");
+      const data = await res.json();
 
-    if (sessionError) {
-      setState({ loading: false, staff: null, error: sessionError.message, userId: null });
-      return;
-    }
+      if (!res.ok || !data.user) {
+        setState({ loading: false, staff: null, error: null, userId: null });
+        return;
+      }
 
-    if (!session?.user) {
-      setState({ loading: false, staff: null, error: null, userId: null });
-      return;
-    }
+      const user = data.user;
 
-    const { data: staff, error: staffError } = await supabase
-      .from("staff")
-      .select("id, restaurant_id, user_id, role, name")
-      .eq("user_id", session.user.id)
-      .maybeSingle();
-
-    if (staffError) {
+      setState({
+        loading: false,
+        staff: {
+          id: user.id, // we map app_users.id as staff.id conceptually for now
+          restaurant_id: user.restaurant_id,
+          user_id: user.id, // not an auth.user id anymore, but the app_user_id
+          role: user.role,
+          name: user.name,
+        } as StaffMember,
+        error: null,
+        userId: user.id,
+      });
+    } catch (err: any) {
       setState({
         loading: false,
         staff: null,
-        error: staffError.message,
-        userId: session.user.id,
+        error: "Oturum kontrol edilirken hata oluştu",
+        userId: null,
       });
-      return;
     }
-
-    if (!staff) {
-      setState({
-        loading: false,
-        staff: null,
-        error: "Bu hesap için personel kaydı yok. Yönetici staff satırı eklemeli.",
-        userId: session.user.id,
-      });
-      return;
-    }
-
-    setState({
-      loading: false,
-      staff: staff as StaffMember,
-      error: null,
-      userId: session.user.id,
-    });
   }, []);
 
   useEffect(() => {
     void refresh();
-
-    const supabase = createBrowserClient();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      void refresh();
-    });
-
-    return () => subscription.unsubscribe();
+    // Supabase auth subscription is removed since we use custom cookies
   }, [refresh]);
 
   return { ...state, refresh };
