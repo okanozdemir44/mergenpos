@@ -31,7 +31,8 @@ export async function disconnectQZ(): Promise<void> {
 
 export async function getPrinters(): Promise<string[]> {
   await connectQZ();
-  return qz.printers.find();
+  const printers = await qz.printers.find();
+  return Array.isArray(printers) ? printers : [printers];
 }
 
 /**
@@ -54,5 +55,5 @@ export async function printHtml(printerName: string, htmlContent: string): Promi
     },
   ];
 
-  await qz.print(config, data);
+  await qz.print(config, data as any);
 }

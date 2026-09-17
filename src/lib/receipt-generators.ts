@@ -63,7 +63,7 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
         ${item.name}
         ${item.note ? `<span class="receipt-item-note">- ${item.note}</span>` : ""}
       </td>
-      <td class="col-price">*${formatTRY(item.totalPrice)}</td>
+      <td class="col-price">*${formatTRY(item.totalPrice || 0)}</td>
     </tr>
   `
     )
@@ -115,11 +115,11 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
             </div>
             <div class="receipt-row">
               <span>Tahsil Edilen</span>
-              <span>${formatTRY(data.paidAmount)}</span>
+              <span>${formatTRY(data.paidAmount || 0)}</span>
             </div>
             <div class="receipt-row" style="margin-top: 2px;">
               <span>Kalan</span>
-              <span>${formatTRY(data.changeAmount)}</span>
+              <span>${formatTRY(data.changeAmount || 0)}</span>
             </div>
           </div>
           
