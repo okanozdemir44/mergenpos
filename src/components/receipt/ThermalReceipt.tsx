@@ -178,7 +178,7 @@ export function ThermalReceipt({
       {/* Alt Bilgi */}
       <div className="receipt-footer">
         <div className="receipt-compliment">Afiyet Olsun.</div>
-        <div className="receipt-logo">mergen pos 🖤</div>
+        <div className="receipt-logo">MERGEN TEKNOLOJİ</div>
       </div>
     </div>
   );

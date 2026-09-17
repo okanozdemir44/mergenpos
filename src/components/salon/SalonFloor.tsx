@@ -260,9 +260,10 @@ export function SalonFloor() {
         orderNumber: assignedNumber,
       };
 
-      setReceiptData(newReceipt);
-
-      // 4. Termal Yazdırmayı Başlat ve Pencere Kapanınca Sepeti Temizle
+      // 4. QZ Tray Üzerinden Yazdırma İşlemi
+      const kasaPrinter = localStorage.getItem("PRINTER_KASA");
+      const mutfakPrinter = localStorage.getItem("PRINTER_MUTFAK");
+      
       const resetAfterPrint = () => {
         setCart([]);
         setSubmitting(false);
@@ -270,17 +271,42 @@ export function SalonFloor() {
           orderNumber: assignedNumber,
           time: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
         });
-        window.removeEventListener("afterprint", resetAfterPrint);
       };
 
-      window.addEventListener("afterprint", resetAfterPrint);
+      if (kasaPrinter || mutfakPrinter) {
+        try {
+          const { printHtml } = await import("../../lib/qz");
+          const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("../../lib/receipt-generators");
 
-      // DOM render olduktan hemen sonra yazdır
-      setTimeout(() => {
-        window.print();
-        // afterprint desteklemeyen browserlar için yedek zamanlayıcı
-        setTimeout(resetAfterPrint, 1500);
-      }, 150);
+          if (kasaPrinter) {
+            const kasaHtml = generateCashierReceiptHtml(newReceipt);
+            await printHtml(kasaPrinter, kasaHtml).catch(e => console.error("Kasa yazıcı hatası:", e));
+          }
+          
+          if (mutfakPrinter) {
+            const mutfakHtml = generateKitchenReceiptHtml(newReceipt);
+            await printHtml(mutfakPrinter, mutfakHtml).catch(e => console.error("Mutfak yazıcı hatası:", e));
+          }
+          
+          resetAfterPrint();
+        } catch (error) {
+          console.error("QZ Tray Hatası:", error);
+          setError("Yazıcıya bağlanılamadı. QZ Tray açık mı?");
+          resetAfterPrint();
+        }
+      } else {
+        // Fallback: Eski tarayıcı yazdırma yöntemi
+        setReceiptData(newReceipt);
+        const onAfterPrint = () => {
+          resetAfterPrint();
+          window.removeEventListener("afterprint", onAfterPrint);
+        };
+        window.addEventListener("afterprint", onAfterPrint);
+        setTimeout(() => {
+          window.print();
+          setTimeout(onAfterPrint, 1500); // fallback
+        }, 150);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "İşlem sırasında bir hata oluştu";
       setError(msg);

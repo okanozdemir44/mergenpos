@@ -4,6 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStaffSession } from "@/hooks/useStaffSession";
 
+import { useState } from "react";
+import PrinterSettingsModal from "../settings/PrinterSettingsModal";
+
 const NAV = [
   { href: "/salon", label: "Hızlı Satış", icon: "⚡" },
   { href: "/salon", label: "Paket (Kurye)", icon: "🛵" },
@@ -14,6 +17,7 @@ const NAV = [
 export function PosShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { staff } = useStaffSession();
+  const [showPrinterSettings, setShowPrinterSettings] = useState(false);
   const hideShell = pathname.startsWith("/login");
 
   if (hideShell) {
@@ -56,6 +60,13 @@ export function PosShell({ children }: { children: React.ReactNode }) {
             <strong>{staff?.name ?? "Personel"}</strong>
             <span>{staff?.role ?? "—"}</span>
           </div>
+          <button 
+            onClick={() => setShowPrinterSettings(true)} 
+            className="pos-side-link pos-side-link--ghost"
+            style={{ textAlign: "left", width: "100%", cursor: "pointer", border: "none", background: "none" }}
+          >
+            🖨️ Yazıcılar
+          </button>
           <Link href="/login" className="pos-side-link pos-side-link--ghost">
             Çıkış
           </Link>
@@ -63,6 +74,7 @@ export function PosShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="pos-main">{children}</div>
+      {showPrinterSettings && <PrinterSettingsModal onClose={() => setShowPrinterSettings(false)} />}
     </div>
   );
 }
