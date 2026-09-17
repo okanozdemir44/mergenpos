@@ -69,21 +69,21 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
     )
     .join("");
 
-  return \`
+  return `
     <html>
-      <head><style>\${css}</style></head>
+      <head><style>${css}</style></head>
       <body>
         <div class="receipt-container">
           <div class="receipt-header">
             <div class="receipt-brand">MERGEN POS</div>
-            <div class="receipt-branch">\${data.branchName}</div>
+            <div class="receipt-branch">${data.branchName}</div>
           </div>
           
           <div class="receipt-info">
-            <div class="receipt-row"><span>Tarih:</span><span>\${data.dateStr}</span></div>
-            <div class="receipt-row"><span>Fiş No:</span><span>\${data.receiptNo}</span></div>
-            <div class="receipt-row"><span>Kasiyer:</span><span>\${data.cashierName}</span></div>
-            <div class="receipt-row"><span>Kanal:</span><span>\${data.orderChannel}</span></div>
+            <div class="receipt-row"><span>Tarih:</span><span>${data.dateStr}</span></div>
+            <div class="receipt-row"><span>Fiş No:</span><span>${data.receiptNo}</span></div>
+            <div class="receipt-row"><span>Kasiyer:</span><span>${data.cashierName}</span></div>
+            <div class="receipt-row"><span>Kanal:</span><span>${data.orderChannel}</span></div>
           </div>
           
           <div class="receipt-divider"></div>
@@ -97,7 +97,7 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
               </tr>
             </thead>
             <tbody>
-              \${itemsHtml}
+              ${itemsHtml}
             </tbody>
           </table>
           
@@ -105,32 +105,32 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
           
           <div class="receipt-summary-total">
             <span>TOPLAM</span>
-            <span>*\${formatTRY(data.total)}</span>
+            <span>*${formatTRY(data.total)}</span>
           </div>
           
           <div class="receipt-summary">
             <div class="receipt-row">
-              <span>\${data.paymentMethod === "cash" ? "Nakit" : "Kredi Kartı"}</span>
-              <span>\${formatTRY(data.total)}</span>
+              <span>${data.paymentMethod === "cash" ? "Nakit" : "Kredi Kartı"}</span>
+              <span>${formatTRY(data.total)}</span>
             </div>
             <div class="receipt-row">
               <span>Tahsil Edilen</span>
-              <span>\${formatTRY(data.paidAmount)}</span>
+              <span>${formatTRY(data.paidAmount)}</span>
             </div>
             <div class="receipt-row" style="margin-top: 2px;">
               <span>Kalan</span>
-              <span>\${formatTRY(data.changeAmount)}</span>
+              <span>${formatTRY(data.changeAmount)}</span>
             </div>
           </div>
           
           <div class="receipt-divider"></div>
           
-          \${
+          ${
             data.orderNumber
-              ? \`<div class="receipt-order-number-box">
-                   <span>Sipariş No: \${data.orderNumber}</span>
+              ? `<div class="receipt-order-number-box">
+                   <span>Sipariş No: ${data.orderNumber}</span>
                  </div>
-                 <div class="receipt-divider"></div>\`
+                 <div class="receipt-divider"></div>`
               : ""
           }
           
@@ -141,7 +141,7 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
         </div>
       </body>
     </html>
-  \`;
+  `;
 }
 
 /**
@@ -197,33 +197,33 @@ export function generateKitchenReceiptHtml(data: ThermalReceiptProps): string {
     )
     .join("");
 
-  return \`
+  return `
     <html>
-      <head><style>\${css}</style></head>
+      <head><style>${css}</style></head>
       <body>
         <div class="receipt-container">
           <div class="receipt-header">
-            <div class="receipt-order-channel">\${data.orderChannel}</div>
+            <div class="receipt-order-channel">${data.orderChannel}</div>
           </div>
           
-          \${
+          ${
             data.orderNumber
-              ? \`<div class="receipt-order-number-box">
-                   SİPARİŞ: \${data.orderNumber}
-                 </div>\`
+              ? `<div class="receipt-order-number-box">
+                   SİPARİŞ: ${data.orderNumber}
+                 </div>`
               : ""
           }
           
           <div class="receipt-info">
-            <div class="receipt-row"><span>Tarih:</span><span>\${data.dateStr}</span></div>
+            <div class="receipt-row"><span>Tarih:</span><span>${data.dateStr}</span></div>
           </div>
           
           <div class="receipt-items">
-            \${itemsHtml}
+            ${itemsHtml}
           </div>
           
         </div>
       </body>
     </html>
-  \`;
+  `;
 }
