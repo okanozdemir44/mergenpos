@@ -63,7 +63,7 @@ export function ReportsPanel() {
         .from("orders")
         .select("id, total_amount, payment_method, status")
         .eq("restaurant_id", staff!.restaurant_id)
-        .eq("status", "teslim_edildi")
+        .neq("status", "iptal")
         .gte("created_at", from.toISOString())
         .lte("created_at", to.toISOString());
 
