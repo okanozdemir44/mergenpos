@@ -162,6 +162,8 @@ input {
 
 .page-shell--wide {
   max-width: none;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .page-shell--pos {

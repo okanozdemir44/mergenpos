@@ -6,6 +6,16 @@ import { useStaffSession } from "@/hooks/useStaffSession";
 import { formatTry } from "@/lib/money";
 
 type RangeKey = "today" | "week" | "month" | "custom";
+type SortOption = "dateDesc" | "dateAsc" | "priceDesc" | "priceAsc";
+
+type OrderRow = {
+  id: string;
+  order_number: number;
+  total_amount: number;
+  payment_method: string;
+  status: string;
+  created_at: string;
+};
 
 function startOfDay(d: Date) {
   const x = new Date(d);
@@ -38,11 +48,12 @@ export function ReportsPanel() {
   const [rangeKey, setRangeKey] = useState<RangeKey>("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [orderCount, setOrderCount] = useState(0);
-  const [revenue, setRevenue] = useState(0);
-  const [cash, setCash] = useState(0);
-  const [card, setCard] = useState(0);
-  const [products, setProducts] = useState<{ name: string; qty: number; revenue: number }[]>([]);
+  
+  const [sortBy, setSortBy] = useState<SortOption>("dateDesc");
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
+
+  const [allOrders, setAllOrders] = useState<OrderRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -50,6 +61,11 @@ export function ReportsPanel() {
     () => rangeFor(rangeKey, customFrom, customTo),
     [rangeKey, customFrom, customTo],
   );
+
+  // Range değiştiğinde sayfayı 1'e al
+  useEffect(() => {
+    setPage(1);
+  }, [rangeKey, customFrom, customTo]);
 
   useEffect(() => {
     if (!staff) return;
@@ -61,7 +77,7 @@ export function ReportsPanel() {
 
       const { data: orders, error: oe } = await supabase
         .from("orders")
-        .select("id, total_amount, payment_method, status")
+        .select("id, order_number, total_amount, payment_method, status, created_at")
         .eq("restaurant_id", staff!.restaurant_id)
         .neq("status", "iptal")
         .gte("created_at", from.toISOString())
@@ -73,50 +89,39 @@ export function ReportsPanel() {
         return;
       }
 
-      const list = orders ?? [];
-      setOrderCount(list.length);
-      setRevenue(list.reduce((s, o) => s + Number(o.total_amount), 0));
-      setCash(list.filter((o) => o.payment_method === "cash").reduce((s, o) => s + Number(o.total_amount), 0));
-      setCard(list.filter((o) => o.payment_method === "card").reduce((s, o) => s + Number(o.total_amount), 0));
-
-      const ids = list.map((o) => o.id);
-      if (ids.length === 0) {
-        setProducts([]);
-        setLoading(false);
-        return;
-      }
-
-      const { data: items, error: ie } = await supabase
-        .from("order_items")
-        .select("quantity, unit_price, menu_items(name)")
-        .in("order_id", ids);
-
-      if (ie) {
-        setError(ie.message);
-        setLoading(false);
-        return;
-      }
-
-      const map = new Map<string, { qty: number; revenue: number }>();
-      for (const row of items ?? []) {
-        const mi = Array.isArray(row.menu_items) ? row.menu_items[0] : row.menu_items;
-        const name = (mi as { name?: string } | null)?.name ?? "Ürün";
-        const cur = map.get(name) ?? { qty: 0, revenue: 0 };
-        cur.qty += row.quantity;
-        cur.revenue += Number(row.unit_price) * row.quantity;
-        map.set(name, cur);
-      }
-
-      setProducts(
-        [...map.entries()]
-          .map(([name, v]) => ({ name, qty: v.qty, revenue: v.revenue }))
-          .sort((a, b) => b.qty - a.qty),
-      );
+      setAllOrders((orders as OrderRow[]) ?? []);
       setLoading(false);
     }
 
     void run();
   }, [staff, from, to]);
+
+  const { sortedOrders, totalPages, currentOrders } = useMemo(() => {
+    let sorted = [...allOrders];
+
+    if (sortBy === "dateDesc") {
+      sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } else if (sortBy === "dateAsc") {
+      sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } else if (sortBy === "priceDesc") {
+      sorted.sort((a, b) => Number(b.total_amount) - Number(a.total_amount));
+    } else if (sortBy === "priceAsc") {
+      sorted.sort((a, b) => Number(a.total_amount) - Number(b.total_amount));
+    }
+
+    const totalPages = Math.max(1, Math.ceil(sorted.length / ITEMS_PER_PAGE));
+    const validPage = Math.min(page, totalPages);
+    
+    const startIndex = (validPage - 1) * ITEMS_PER_PAGE;
+    const currentOrders = sorted.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+    return { sortedOrders: sorted, totalPages, currentOrders };
+  }, [allOrders, sortBy, page]);
+
+  const revenue = useMemo(() => allOrders.reduce((s, o) => s + Number(o.total_amount), 0), [allOrders]);
+  const cash = useMemo(() => allOrders.filter(o => o.payment_method === "cash").reduce((s, o) => s + Number(o.total_amount), 0), [allOrders]);
+  const card = useMemo(() => allOrders.filter(o => o.payment_method === "card").reduce((s, o) => s + Number(o.total_amount), 0), [allOrders]);
+  const orderCount = allOrders.length;
 
   return (
     <div>
@@ -193,19 +198,59 @@ export function ReportsPanel() {
             </div>
           </div>
 
-          <h2 className="order-category-title">Ürün satışları</h2>
-          {products.length === 0 ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.55rem" }}>
+            <h2 className="order-category-title" style={{ margin: 0 }}>Siparişler ({orderCount})</h2>
+            <select 
+              className="login-input" 
+              style={{ width: "auto", padding: "0.4rem 0.75rem" }}
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+            >
+              <option value="dateDesc">Yeniden Eskiye</option>
+              <option value="dateAsc">Eskiden Yeniye</option>
+              <option value="priceDesc">Fiyata Göre Azalan</option>
+              <option value="priceAsc">Fiyata Göre Artan</option>
+            </select>
+          </div>
+
+          {currentOrders.length === 0 ? (
             <p className="salon-muted">Bu aralıkta tamamlanan satış yok.</p>
           ) : (
             <div className="service-list">
-              {products.map((p) => (
-                <div key={p.name} className="service-card">
+              {currentOrders.map((o) => (
+                <div key={o.id} className="service-card" style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center" }}>
                   <div>
-                    <strong>{p.name}</strong>
-                    <div className="salon-muted">{p.qty} adet</div>
+                    <strong>Sipariş #{o.order_number ?? "-"}</strong>
+                    <div className="salon-muted">
+                      {new Date(o.created_at).toLocaleString("tr-TR")} • {o.payment_method === "cash" ? "Nakit" : o.payment_method === "card" ? "Kredi Kartı" : o.payment_method}
+                    </div>
                   </div>
-                  <strong>{formatTry(p.revenue)}</strong>
+                  <strong style={{ fontSize: "1.1rem" }}>{formatTry(Number(o.total_amount))}</strong>
                 </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPage(p)}
+                  style={{
+                    padding: "0.4rem 0.8rem",
+                    borderRadius: "6px",
+                    border: "1px solid var(--pos-line)",
+                    background: p === page ? "var(--pos-teal)" : "#fff",
+                    color: p === page ? "#fff" : "var(--pos-ink)",
+                    fontWeight: "bold",
+                    cursor: "pointer"
+                  }}
+                >
+                  {p}
+                </button>
               ))}
             </div>
           )}
