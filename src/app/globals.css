@@ -47,7 +47,8 @@ input {
 .pos-app {
   display: grid;
   grid-template-columns: 88px 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .pos-sidebar {
@@ -141,7 +142,10 @@ input {
 
 .pos-main {
   min-width: 0;
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page-shell {
