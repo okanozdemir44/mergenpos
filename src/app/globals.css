@@ -408,6 +408,7 @@ input {
   display: grid;
   grid-template-rows: auto auto 1fr;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--pos-line);
 }
 
@@ -456,6 +457,7 @@ input {
 .order-menu-body {
   overflow: auto;
   padding: 0.85rem 1rem 1.25rem;
+  min-height: 0;
 }
 
 .order-category-block + .order-category-block {
