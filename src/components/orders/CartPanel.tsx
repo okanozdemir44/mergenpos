@@ -1,6 +1,6 @@
 "use client";
 
-import type { CartLine, PaymentMethod } from "@/types/pos";
+import { PAYMENT_METHOD_LABEL, type CartLine, type PaymentMethod } from "@/types/pos";
 import { formatTry } from "@/lib/money";
 
 export type OrderChannel = "TEZGAH" | "GEL AL";
@@ -149,24 +149,18 @@ export function CartPanel({
 
         {onChangePaymentMethod && (
           <div className="order-cart__payment-methods">
-            <button
-              type="button"
-              className={`payment-method-btn ${paymentMethod === "cash" ? "payment-method-btn--active" : ""}`}
-              onClick={() => onChangePaymentMethod("cash")}
-              disabled={submitting}
-            >
-              <span>💵</span>
-              <span>Nakit</span>
-            </button>
-            <button
-              type="button"
-              className={`payment-method-btn ${paymentMethod === "card" ? "payment-method-btn--active" : ""}`}
-              onClick={() => onChangePaymentMethod("card")}
-              disabled={submitting}
-            >
-              <span>💳</span>
-              <span>Kredi Kartı</span>
-            </button>
+            {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((method) => (
+              <button
+                key={method}
+                type="button"
+                className={`payment-method-btn ${paymentMethod === method ? "payment-method-btn--active" : ""}`}
+                onClick={() => onChangePaymentMethod(method)}
+                disabled={submitting}
+              >
+                <span>{method === "cash" ? "💵" : method === "card" ? "💳" : "🎟️"}</span>
+                <span>{PAYMENT_METHOD_LABEL[method]}</span>
+              </button>
+            ))}
           </div>
         )}
 

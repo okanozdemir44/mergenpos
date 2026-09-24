@@ -27,9 +27,8 @@ export function PosShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="pos-app">
       <aside className="pos-sidebar">
-        <div className="pos-brand">
-          <span className="pos-brand__mark">M</span>
-          <span className="pos-brand__text">Mergen</span>
+        <div className="pos-brand" style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "0.5rem" }}>
+          <img src="/logo.png" alt="Öküz Burger" style={{ maxWidth: "100%", height: "auto", objectFit: "contain", filter: "drop-shadow(0 2px 4px rgba(245, 158, 11, 0.2))" }} />
         </div>
 
         <nav className="pos-side-nav">

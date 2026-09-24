@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { PAYMENT_METHOD_LABEL, type PaymentMethod } from "@/types/pos";
 
 export type ReceiptItem = {
   quantity: number;
@@ -19,7 +20,7 @@ export type ThermalReceiptProps = {
   orderChannel?: "GEL AL" | "PAKET" | "TEZGAH" | "SALON";
   items: ReceiptItem[];
   total: number;
-  paymentMethod?: "cash" | "card";
+  paymentMethod?: PaymentMethod | string;
   paidAmount?: number;
   changeAmount?: number;
   orderNumber: number | string;
@@ -49,7 +50,7 @@ export function ThermalReceipt({
       second: "2-digit",
     });
 
-  const paymentLabel = paymentMethod === "card" ? "Kredi Kartı" : "Nakit";
+  const paymentLabel = paymentMethod ? PAYMENT_METHOD_LABEL[paymentMethod as PaymentMethod] || paymentMethod : "Belirsiz";
   const actualPaid = paidAmount ?? total;
 
   return (

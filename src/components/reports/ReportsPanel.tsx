@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createBrowserClient } from "@/lib/supabase-browser";
 import { useStaffSession } from "@/hooks/useStaffSession";
 import { formatTry } from "@/lib/money";
+import { PAYMENT_METHOD_LABEL, PaymentMethod } from "@/types/pos";
 
 type RangeKey = "today" | "week" | "month" | "custom";
 type SortOption = "dateDesc" | "dateAsc" | "priceDesc" | "priceAsc";
@@ -56,6 +57,7 @@ export function ReportsPanel() {
   const [allOrders, setAllOrders] = useState<OrderRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const { from, to } = useMemo(
     () => rangeFor(rangeKey, customFrom, customTo),
@@ -119,8 +121,15 @@ export function ReportsPanel() {
   }, [allOrders, sortBy, page]);
 
   const revenue = useMemo(() => allOrders.reduce((s, o) => s + Number(o.total_amount), 0), [allOrders]);
-  const cash = useMemo(() => allOrders.filter(o => o.payment_method === "cash").reduce((s, o) => s + Number(o.total_amount), 0), [allOrders]);
-  const card = useMemo(() => allOrders.filter(o => o.payment_method === "card").reduce((s, o) => s + Number(o.total_amount), 0), [allOrders]);
+  
+  const revenueByMethod = useMemo(() => {
+    const methods: Record<string, number> = {};
+    for (const o of allOrders) {
+      if (!o.payment_method) continue;
+      methods[o.payment_method] = (methods[o.payment_method] || 0) + Number(o.total_amount);
+    }
+    return methods;
+  }, [allOrders]);
   const orderCount = allOrders.length;
 
   return (
@@ -188,14 +197,12 @@ export function ReportsPanel() {
               <span>Ciro</span>
               <strong>{formatTry(revenue)}</strong>
             </div>
-            <div className="report-card">
-              <span>Nakit</span>
-              <strong>{formatTry(cash)}</strong>
-            </div>
-            <div className="report-card">
-              <span>Kart</span>
-              <strong>{formatTry(card)}</strong>
-            </div>
+            {Object.entries(revenueByMethod).map(([method, amount]) => (
+              <div className="report-card" key={method}>
+                <span>{PAYMENT_METHOD_LABEL[method as PaymentMethod] || method}</span>
+                <strong>{formatTry(amount)}</strong>
+              </div>
+            ))}
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.55rem" }}>
@@ -218,14 +225,23 @@ export function ReportsPanel() {
           ) : (
             <div className="service-list">
               {currentOrders.map((o) => (
-                <div key={o.id} className="service-card" style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center" }}>
-                  <div>
-                    <strong>Sipariş #{o.order_number ?? "-"}</strong>
-                    <div className="salon-muted">
-                      {new Date(o.created_at).toLocaleString("tr-TR")} • {o.payment_method === "cash" ? "Nakit" : o.payment_method === "card" ? "Kredi Kartı" : o.payment_method}
+                <div key={o.id} style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  <div 
+                    className="service-card" 
+                    style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", cursor: "pointer" }}
+                    onClick={() => setExpandedOrderId(prev => prev === o.id ? null : o.id)}
+                  >
+                    <div>
+                      <strong>Sipariş #{o.order_number ?? "-"}</strong>
+                      <div className="salon-muted">
+                        {new Date(o.created_at).toLocaleString("tr-TR")} • {PAYMENT_METHOD_LABEL[o.payment_method as PaymentMethod] || o.payment_method}
+                      </div>
                     </div>
+                    <strong style={{ fontSize: "1.1rem" }}>{formatTry(Number(o.total_amount))}</strong>
                   </div>
-                  <strong style={{ fontSize: "1.1rem" }}>{formatTry(Number(o.total_amount))}</strong>
+                  {expandedOrderId === o.id && (
+                    <OrderDetailsFetcher orderId={o.id} />
+                  )}
                 </div>
               ))}
             </div>
@@ -256,6 +272,54 @@ export function ReportsPanel() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function OrderDetailsFetcher({ orderId }: { orderId: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const fetchItems = async () => {
+      setLoading(true);
+      const supabase = createBrowserClient();
+      const { data, error } = await supabase
+        .from("order_items")
+        .select("id, quantity, unit_price, note, menu_items(name)")
+        .eq("order_id", orderId);
+      
+      if (active) {
+        if (data && !error) {
+          setItems(data);
+        }
+        setLoading(false);
+      }
+    };
+    void fetchItems();
+    return () => { active = false; };
+  }, [orderId]);
+
+  if (loading) {
+    return <div className="salon-muted" style={{ padding: "0.5rem 1rem" }}>Ürünler yükleniyor...</div>;
+  }
+
+  if (items.length === 0) {
+    return <div className="salon-muted" style={{ padding: "0.5rem 1rem" }}>Bu siparişte ürün bulunamadı.</div>;
+  }
+
+  return (
+    <div style={{ padding: "0.5rem 1rem", backgroundColor: "#f9fafb", borderRadius: "8px", border: "1px solid var(--pos-line)" }}>
+      {items.map(item => (
+        <div key={item.id} style={{ display: "flex", justifyContent: "space-between", padding: "0.25rem 0", borderBottom: "1px solid #e5e7eb" }}>
+          <div>
+            <span>{item.quantity}x {item.menu_items?.name || "Bilinmeyen Ürün"}</span>
+            {item.note && <div className="salon-muted" style={{ fontSize: "0.85rem" }}>Not: {item.note}</div>}
+          </div>
+          <span>{formatTry(Number(item.unit_price) * Number(item.quantity))}</span>
+        </div>
+      ))}
     </div>
   );
 }

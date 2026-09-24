@@ -1,4 +1,5 @@
 import type { ThermalReceiptProps } from "../components/receipt/ThermalReceipt";
+import { PAYMENT_METHOD_LABEL, type PaymentMethod } from "@/types/pos";
 
 /**
  * Format a number as TRY (e.g. 150.00)
@@ -110,7 +111,7 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
           
           <div class="receipt-summary">
             <div class="receipt-row">
-              <span>${data.paymentMethod === "cash" ? "Nakit" : "Kredi Kartı"}</span>
+              <span>${data.paymentMethod ? (PAYMENT_METHOD_LABEL[data.paymentMethod as PaymentMethod] || data.paymentMethod) : "Belirsiz"}</span>
               <span>${formatTRY(data.total)}</span>
             </div>
             <div class="receipt-row">

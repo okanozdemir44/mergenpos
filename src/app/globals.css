@@ -1,23 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 :root {
-  --pos-bg: #eef2f6;
+  --pos-bg: #f8fafc;
   --pos-surface: #ffffff;
   --pos-ink: #0f172a;
   --pos-muted: #64748b;
   --pos-line: #e2e8f0;
-  --pos-teal: #0f766e;
-  --pos-teal-2: #14b8a6;
-  --pos-teal-soft: #ccfbf1;
+  --pos-teal: #f59e0b; /* Brand Amber */
+  --pos-teal-2: #d97706; /* Brand Amber Dark */
+  --pos-teal-soft: #fef3c7; /* Brand Amber Light */
   --empty: #16a34a;
   --empty-soft: #dcfce7;
-  --occupied: #ea580c;
-  --occupied-soft: #ffedd5;
+  --occupied: #dc2626; /* Red for occupied tables instead of orange, since brand is orange */
+  --occupied-soft: #fee2e2;
   --bill: #2563eb;
   --bill-soft: #dbeafe;
   --danger: #dc2626;
-  --sidebar: #0b3d3a;
-  --sidebar-2: #0f766e;
+  --sidebar: #09090b; /* Black to match logo */
+  --sidebar-2: #18181b;
 }
 
 * {
@@ -30,7 +31,8 @@ body {
   min-height: 100%;
   background: var(--pos-bg);
   color: var(--pos-ink);
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
+  letter-spacing: -0.015em;
 }
 
 a {
@@ -221,6 +223,19 @@ input {
   font-weight: 800;
   padding: 0.85rem 1rem;
   cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 6px -1px rgba(245, 158, 11, 0.2), 0 2px 4px -2px rgba(245, 158, 11, 0.2);
+}
+
+.login-button:not(:disabled):hover {
+  background: var(--pos-teal-2);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px -2px rgba(245, 158, 11, 0.3);
+}
+
+.login-button:not(:disabled):active {
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 .login-button:disabled {
@@ -684,18 +699,21 @@ input {
   font-weight: 700;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .payment-method-btn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: var(--pos-surface);
+  border-color: var(--pos-teal);
+  box-shadow: 0 4px 6px -1px rgba(245, 158, 11, 0.1);
+  transform: translateY(-1px);
 }
 
 .payment-method-btn--active {
-  background: #eff6ff;
-  border-color: #3b82f6;
-  color: #1d4ed8;
+  background: var(--pos-teal-soft);
+  border-color: var(--pos-teal);
+  color: var(--pos-teal-2);
+  box-shadow: inset 0 2px 4px rgba(245, 158, 11, 0.05);
 }
 
 .order-cart__checkout-btn {

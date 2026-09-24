@@ -8,6 +8,7 @@ import { useStaffSession } from "@/hooks/useStaffSession";
 import { MenuPanel } from "@/components/orders/MenuPanel";
 import { formatTry } from "@/lib/money";
 import type { CartLine, MenuCategory, MenuItem, OrderType, PaymentMethod } from "@/types/pos";
+import { PAYMENT_METHOD_LABEL } from "@/types/pos";
 
 function newLineKey(menuItemId: string) {
   return `${menuItemId}-${crypto.randomUUID()}`;
@@ -291,23 +292,24 @@ export function ServiceOrderEntry() {
               <strong>{formatTry(total)}</strong>
             </div>
             
-            <div className="payment-options" style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", marginTop: "1rem" }}>
-              <button
-                type="button"
-                className={`ghost-btn ${paymentMethod === "cash" ? "active-payment" : ""}`}
-                style={{ flex: 1, backgroundColor: paymentMethod === "cash" ? "#e0e7ff" : "transparent", borderColor: paymentMethod === "cash" ? "#4f46e5" : "#e5e7eb", color: paymentMethod === "cash" ? "#4f46e5" : "inherit" }}
-                onClick={() => setPaymentMethod("cash")}
-              >
-                Nakit
-              </button>
-              <button
-                type="button"
-                className={`ghost-btn ${paymentMethod === "card" ? "active-payment" : ""}`}
-                style={{ flex: 1, backgroundColor: paymentMethod === "card" ? "#e0e7ff" : "transparent", borderColor: paymentMethod === "card" ? "#4f46e5" : "#e5e7eb", color: paymentMethod === "card" ? "#4f46e5" : "inherit" }}
-                onClick={() => setPaymentMethod("card")}
-              >
-                Kredi Kartı
-              </button>
+            <div className="payment-options" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "1rem", marginTop: "1rem" }}>
+              {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((method) => (
+                <button
+                  key={method}
+                  type="button"
+                  className={`ghost-btn ${paymentMethod === method ? "active-payment" : ""}`}
+                  style={{
+                    backgroundColor: paymentMethod === method ? "#e0e7ff" : "transparent",
+                    borderColor: paymentMethod === method ? "#4f46e5" : "#e5e7eb",
+                    color: paymentMethod === method ? "#4f46e5" : "inherit",
+                    padding: "0.5rem",
+                    fontSize: "0.85rem"
+                  }}
+                  onClick={() => setPaymentMethod(method)}
+                >
+                  {PAYMENT_METHOD_LABEL[method]}
+                </button>
+              ))}
             </div>
 
             <button
@@ -378,7 +380,7 @@ export function ServiceOrderEntry() {
               )}
 
               <div className="order-cart__total" style={{ marginTop: "1.5rem" }}>
-                <span>Toplam Ödenecek ({paymentMethod === "cash" ? "Nakit" : "Kredi Kartı"})</span>
+                <span>Toplam Ödenecek ({PAYMENT_METHOD_LABEL[paymentMethod]})</span>
                 <strong>{formatTry(total)}</strong>
               </div>
 
