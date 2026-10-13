@@ -7,18 +7,19 @@
   --pos-ink: #0f172a;
   --pos-muted: #64748b;
   --pos-line: #e2e8f0;
-  --pos-teal: #f59e0b; /* Brand Amber */
-  --pos-teal-2: #d97706; /* Brand Amber Dark */
-  --pos-teal-soft: #fef3c7; /* Brand Amber Light */
+  --pos-teal: #f59e0b; /* Brand Primary */
+  --pos-teal-2: #d97706; /* Brand Secondary */
+  --pos-teal-soft: #fef3c7; /* Brand Soft */
   --empty: #16a34a;
   --empty-soft: #dcfce7;
-  --occupied: #dc2626; /* Red for occupied tables instead of orange, since brand is orange */
+  --occupied: #dc2626;
   --occupied-soft: #fee2e2;
   --bill: #2563eb;
   --bill-soft: #dbeafe;
   --danger: #dc2626;
-  --sidebar: #09090b; /* Black to match logo */
+  --sidebar: #09090b;
   --sidebar-2: #18181b;
+  --sidebar-brand: #1a1a24;
 }
 
 * {
@@ -54,7 +55,7 @@ input {
 }
 
 .pos-sidebar {
-  background: linear-gradient(180deg, var(--sidebar), #062925 80%);
+  background: linear-gradient(180deg, var(--sidebar), var(--sidebar-brand, #111827) 80%);
   color: #ecfeff;
   display: flex;
   flex-direction: column;

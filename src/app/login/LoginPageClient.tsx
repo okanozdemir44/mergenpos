@@ -33,8 +33,8 @@ export default function LoginPageClient() {
         return;
       }
 
-      // Success -> Redirect
-      router.replace(next);
+      // Success -> Redirect (tam sayfa yenilemesi ile oturumu taze yükle)
+      window.location.href = next;
     } catch (err: any) {
       setError("Bağlantı hatası");
       setLoading(false);
@@ -43,7 +43,7 @@ export default function LoginPageClient() {
 
   return (
     <main className="page-shell page-shell--narrow">
-      <p className="salon-kicker">Öküz Burger POS</p>
+      <p className="salon-kicker">Mergen POS</p>
       <h1 className="salon-title">Personel girişi</h1>
       <p className="salon-muted" style={{ marginBottom: "1.5rem" }}>
         Giriş sonrası kendi restoranınızın masalarını görürsünüz.

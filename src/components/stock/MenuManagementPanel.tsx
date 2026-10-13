@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createBrowserClient } from "@/lib/supabase-browser";
 import { useStaffSession } from "@/hooks/useStaffSession";
+import { useBranding } from "@/context/BrandingContext";
 import type { MenuCategory, MenuItem } from "@/types/pos";
 import { formatTry } from "@/lib/money";
 
@@ -19,6 +20,7 @@ type EditingProduct = {
 
 export function MenuManagementPanel() {
   const { staff } = useStaffSession();
+  const { branding } = useBranding();
   const [activePanel, setActivePanel] = useState<ActivePanel>("categories");
 
   // ── Categories State ───────────────────────────────────────────────────────
@@ -295,7 +297,7 @@ export function MenuManagementPanel() {
       {/* ── Header ───────────────────────────────────────────────────── */}
       <header className="salon-header">
         <div>
-          <p className="salon-kicker">Öküz Burger · Yönetim Paneli</p>
+          <p className="salon-kicker">{branding.display_name} · Yönetim Paneli</p>
           <h1 className="salon-title">Menü &amp; Kategori Yönetimi</h1>
           <p className="salon-muted">
             Burada eklediğiniz kategori ve ürünler anında Kasa ekranına yansır.

@@ -75,6 +75,8 @@ export type OrderRow = {
   customer_name: string | null;
   customer_phone: string | null;
   delivery_address: string | null;
+  customer_id?: string | null;
+  customer_address_id?: string | null;
   payment_method: PaymentMethod | null;
   paid_at: string | null;
   courier_status: CourierStatus | null;

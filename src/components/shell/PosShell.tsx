@@ -3,9 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStaffSession } from "@/hooks/useStaffSession";
-
 import { useState } from "react";
 import PrinterSettingsModal from "../settings/PrinterSettingsModal";
+import CallerIdSettingsModal from "../settings/CallerIdSettingsModal";
+import { CallerIdOverlay } from "../callerid/CallerIdOverlay";
+import { CallerIdProvider } from "@/context/CallerIdContext";
+
+import { BrandingProvider, useBranding } from "@/context/BrandingContext";
 
 const NAV = [
   { href: "/salon", label: "Hızlı Satış", icon: "⚡" },
@@ -14,10 +18,12 @@ const NAV = [
   { href: "/stock", label: "Menü Yönetimi", icon: "🗂️" },
 ] as const;
 
-export function PosShell({ children }: { children: React.ReactNode }) {
+function PosShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { staff } = useStaffSession();
+  const { branding } = useBranding();
   const [showPrinterSettings, setShowPrinterSettings] = useState(false);
+  const [showCallerIdSettings, setShowCallerIdSettings] = useState(false);
   const hideShell = pathname.startsWith("/login");
 
   if (hideShell) {
@@ -27,8 +33,19 @@ export function PosShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="pos-app">
       <aside className="pos-sidebar">
-        <div className="pos-brand" style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "0.5rem" }}>
-          <img src="/logo.png" alt="Öküz Burger" style={{ maxWidth: "100%", height: "auto", objectFit: "contain", filter: "drop-shadow(0 2px 4px rgba(245, 158, 11, 0.2))" }} />
+        <div className="pos-brand" style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "0.5rem 0.25rem" }}>
+          <img
+            src={branding.logo_url}
+            alt={branding.display_name}
+            style={{
+              width: "100%",
+              maxWidth: "100%",
+              height: "auto",
+              maxHeight: "64px",
+              objectFit: "contain",
+              filter: "drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3))",
+            }}
+          />
         </div>
 
         <nav className="pos-side-nav">
@@ -38,7 +55,6 @@ export function PosShell({ children }: { children: React.ReactNode }) {
               pathname === matchPath ||
               pathname.startsWith(`${matchPath}/`) ||
               (matchPath === "/service" && pathname.startsWith("/service"));
-            // Gel Al vs Paket: both match /service — highlight both when on service; refine with search later
             return (
               <Link
                 key={item.href + item.label}
@@ -60,6 +76,13 @@ export function PosShell({ children }: { children: React.ReactNode }) {
             <span>{staff?.role ?? "—"}</span>
           </div>
           <button 
+            onClick={() => setShowCallerIdSettings(true)} 
+            className="pos-side-link pos-side-link--ghost"
+            style={{ textAlign: "left", width: "100%", cursor: "pointer", border: "none", background: "none" }}
+          >
+            📞 Caller ID
+          </button>
+          <button 
             onClick={() => setShowPrinterSettings(true)} 
             className="pos-side-link pos-side-link--ghost"
             style={{ textAlign: "left", width: "100%", cursor: "pointer", border: "none", background: "none" }}
@@ -73,7 +96,19 @@ export function PosShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="pos-main">{children}</div>
+      <CallerIdOverlay />
+      {showCallerIdSettings && <CallerIdSettingsModal onClose={() => setShowCallerIdSettings(false)} />}
       {showPrinterSettings && <PrinterSettingsModal onClose={() => setShowPrinterSettings(false)} />}
     </div>
+  );
+}
+
+export function PosShell({ children }: { children: React.ReactNode }) {
+  return (
+    <BrandingProvider>
+      <CallerIdProvider>
+        <PosShellInner>{children}</PosShellInner>
+      </CallerIdProvider>
+    </BrandingProvider>
   );
 }

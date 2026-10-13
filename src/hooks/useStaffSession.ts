@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { StaffMember } from "@/types/pos";
 
 type StaffState = {
@@ -11,6 +12,7 @@ type StaffState = {
 };
 
 export function useStaffSession() {
+  const pathname = usePathname();
   const [state, setState] = useState<StaffState>({
     loading: true,
     staff: null,
@@ -56,8 +58,7 @@ export function useStaffSession() {
 
   useEffect(() => {
     void refresh();
-    // Supabase auth subscription is removed since we use custom cookies
-  }, [refresh]);
+  }, [refresh, pathname]);
 
   return { ...state, refresh };
 }

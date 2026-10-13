@@ -18,26 +18,34 @@ export type ThermalReceiptProps = {
   dateStr?: string;
   cashierName?: string;
   orderChannel?: "GEL AL" | "PAKET" | "TEZGAH" | "SALON";
+  customerName?: string | null;
+  customerPhone?: string | null;
+  deliveryAddress?: string | null;
   items: ReceiptItem[];
   total: number;
   paymentMethod?: PaymentMethod | string;
   paidAmount?: number;
   changeAmount?: number;
   orderNumber: number | string;
+  complimentText?: string;
 };
 
 export function ThermalReceipt({
-  branchName = "SAMSUN / ÖKÜZ BURGER",
+  branchName = "MERGEN POS",
   receiptNo = "457021369",
   dateStr,
   cashierName = "KASİYER",
   orderChannel = "GEL AL",
+  customerName,
+  customerPhone,
+  deliveryAddress,
   items,
   total,
   paymentMethod = "cash",
   paidAmount,
   changeAmount = 0,
   orderNumber,
+  complimentText = "Afiyet Olsun.",
 }: ThermalReceiptProps) {
   const currentDate =
     dateStr ??
@@ -74,6 +82,30 @@ export function ThermalReceipt({
             Sipariş Kanalı: <strong>{orderChannel}</strong>
           </span>
         </div>
+        {orderChannel === "PAKET" && (customerName || customerPhone || deliveryAddress) && (
+          <div style={{ marginTop: "6px", paddingTop: "4px", borderTop: "1px dashed #cbd5e1" }}>
+            {customerName && (
+              <div className="receipt-row">
+                <span>Müşteri:</span>
+                <strong>{customerName.toUpperCase()}</strong>
+              </div>
+            )}
+            {customerPhone && (
+              <div className="receipt-row" style={{ marginTop: "2px" }}>
+                <span>Telefon:</span>
+                <strong>{customerPhone}</strong>
+              </div>
+            )}
+            {deliveryAddress && (
+              <div style={{ marginTop: "3px", textAlign: "left" }}>
+                <span>Adres:</span>
+                <div style={{ fontWeight: 700, fontSize: "11px", lineHeight: "1.3", marginTop: "1px" }}>
+                  {deliveryAddress}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="receipt-divider" />
@@ -178,7 +210,7 @@ export function ThermalReceipt({
 
       {/* Alt Bilgi */}
       <div className="receipt-footer">
-        <div className="receipt-compliment">Afiyet Olsun.</div>
+        <div className="receipt-compliment">{complimentText}</div>
         <div className="receipt-logo">MERGEN TEKNOLOJİ</div>
       </div>
     </div>

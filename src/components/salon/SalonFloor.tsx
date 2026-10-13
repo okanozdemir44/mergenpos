@@ -8,6 +8,7 @@ import { MenuPanel } from "@/components/orders/MenuPanel";
 import { CartPanel, type OrderChannel } from "@/components/orders/CartPanel";
 import { ThermalReceipt, type ThermalReceiptProps } from "@/components/receipt/ThermalReceipt";
 import { ServiceKanban } from "@/components/service/ServiceKanban";
+import { useBranding } from "@/context/BrandingContext";
 import type { CartLine, MenuCategory, MenuItem, PaymentMethod } from "@/types/pos";
 
 type ActiveTab = "salon" | "service";
@@ -19,6 +20,7 @@ function newLineKey(menuItemId: string) {
 export function SalonFloor() {
   const router = useRouter();
   const { loading: staffLoading, staff, error: staffError, userId } = useStaffSession();
+  const { branding } = useBranding();
 
   // ── Tab State ─────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>("salon");
@@ -233,8 +235,9 @@ export function SalonFloor() {
       // 3. Fiş Verisini Hazırla
       const generatedReceiptNo = String(Math.floor(100000000 + Math.random() * 900000000));
       const newReceipt: ThermalReceiptProps = {
-        branchName: "SAMSUN / ÖKÜZ BURGER",
+        branchName: branding.receipt_header || branding.display_name,
         receiptNo: generatedReceiptNo,
+        complimentText: branding.receipt_footer,
         dateStr: new Date().toLocaleString("tr-TR", {
           day: "2-digit",
           month: "2-digit",
@@ -337,7 +340,7 @@ export function SalonFloor() {
       {/* ── Sekme Başlığı (Her iki tab için ortak) ─────────────────────── */}
       <div className="salon-tab-header">
         <div className="salon-tab-header__brand">
-          <p className="salon-kicker">Öküz Burger · Kasa &amp; Tezgah</p>
+          <p className="salon-kicker">{branding.display_name} · Kasa &amp; Tezgah</p>
           <p className="salon-muted" style={{ margin: 0 }}>Kasiyer: {staff.name}</p>
         </div>
         <div className="pos-tabs">

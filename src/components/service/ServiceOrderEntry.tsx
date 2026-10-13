@@ -5,10 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase-browser";
 import { useStaffSession } from "@/hooks/useStaffSession";
+import { useBranding } from "@/context/BrandingContext";
 import { MenuPanel } from "@/components/orders/MenuPanel";
+import { ThermalReceipt, type ThermalReceiptProps } from "@/components/receipt/ThermalReceipt";
 import { formatTry } from "@/lib/money";
+import { normalizePhone } from "@/lib/phone";
 import type { CartLine, MenuCategory, MenuItem, OrderType, PaymentMethod } from "@/types/pos";
 import { PAYMENT_METHOD_LABEL } from "@/types/pos";
+import type { Customer, CustomerAddress } from "@/types/customer";
 
 function newLineKey(menuItemId: string) {
   return `${menuItemId}-${crypto.randomUUID()}`;
@@ -19,6 +23,13 @@ export function ServiceOrderEntry() {
   const searchParams = useSearchParams();
   const orderTypeParam = searchParams.get("type") as OrderType | null;
   const orderType: OrderType = orderTypeParam === "delivery" ? "delivery" : "takeaway";
+
+  const { branding } = useBranding();
+
+  // URL'den gelen Caller ID parametreleri
+  const customerIdParam = searchParams.get("customerId");
+  const addressIdParam = searchParams.get("addressId");
+  const callerPhoneParam = searchParams.get("callerPhone");
 
   const { loading: staffLoading, staff, error: staffError, userId } = useStaffSession();
 
@@ -31,11 +42,19 @@ export function ServiceOrderEntry() {
   const [error, setError] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
 
+  // Müşteri Bilgileri
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  
+
+  // Caller ID ve Adres Seçimi State'leri
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerAddressId, setCustomerAddressId] = useState<string | null>(null);
+  const [customerAddresses, setCustomerAddresses] = useState<CustomerAddress[]>([]);
+  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [receiptData, setReceiptData] = useState<ThermalReceiptProps | null>(null);
 
   const total = useMemo(() => cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0), [cart]);
 
@@ -75,6 +94,112 @@ export function ServiceOrderEntry() {
     if (!staff) return;
     void load(staff.restaurant_id);
   }, [staffLoading, userId, staff, load, router, orderType]);
+
+  // URL'den gelen müşteri/telefon bilgilerini yükle
+  useEffect(() => {
+    if (!staff?.restaurant_id) return;
+    const supabase = createBrowserClient();
+
+    async function loadCallerIdCustomer() {
+      if (customerIdParam) {
+        setCustomerId(customerIdParam);
+        const { data: cust } = await supabase
+          .from("customers")
+          .select("*")
+          .eq("restaurant_id", staff!.restaurant_id)
+          .eq("id", customerIdParam)
+          .maybeSingle();
+
+        if (cust) {
+          setCustomerName(cust.name || "");
+          setCustomerPhone(cust.phone || "");
+
+          const { data: addrs } = await supabase
+            .from("customer_addresses")
+            .select("*")
+            .eq("restaurant_id", staff!.restaurant_id)
+            .eq("customer_id", cust.id)
+            .order("created_at", { ascending: false });
+
+          if (addrs && addrs.length > 0) {
+            setCustomerAddresses(addrs as CustomerAddress[]);
+            const targetAddr = addressIdParam
+              ? addrs.find((a) => a.id === addressIdParam) || addrs[0]
+              : addrs[0];
+            setCustomerAddressId(targetAddr.id);
+            setDeliveryAddress(targetAddr.address);
+          }
+        }
+      } else if (callerPhoneParam) {
+        const normalized = normalizePhone(callerPhoneParam);
+        if (normalized) {
+          setCustomerPhone(normalized);
+          void searchCustomerByPhone(normalized);
+        }
+      }
+    }
+
+    void loadCallerIdCustomer();
+  }, [staff?.restaurant_id, customerIdParam, addressIdParam, callerPhoneParam]);
+
+  // Telefon girildiğinde müşteriyi otomatik ara
+  const searchCustomerByPhone = useCallback(
+    async (rawPhone: string) => {
+      if (!staff?.restaurant_id) return;
+      const normalized = normalizePhone(rawPhone);
+      if (!normalized) return;
+
+      setIsSearchingCustomer(true);
+      try {
+        const supabase = createBrowserClient();
+        const { data: cust } = await supabase
+          .from("customers")
+          .select("*")
+          .eq("restaurant_id", staff.restaurant_id)
+          .eq("phone", normalized)
+          .maybeSingle();
+
+        if (cust) {
+          setCustomerId(cust.id);
+          if (!customerName.trim()) {
+            setCustomerName(cust.name || "");
+          }
+
+          const { data: addrs } = await supabase
+            .from("customer_addresses")
+            .select("*")
+            .eq("restaurant_id", staff.restaurant_id)
+            .eq("customer_id", cust.id)
+            .order("created_at", { ascending: false });
+
+          if (addrs && addrs.length > 0) {
+            setCustomerAddresses(addrs as CustomerAddress[]);
+            if (!deliveryAddress.trim()) {
+              setCustomerAddressId(addrs[0].id);
+              setDeliveryAddress(addrs[0].address);
+            }
+          }
+        } else {
+          setCustomerId(null);
+          setCustomerAddressId(null);
+          setCustomerAddresses([]);
+        }
+      } catch {
+        // Arama hatası akışı bozmaz
+      } finally {
+        setIsSearchingCustomer(false);
+      }
+    },
+    [staff?.restaurant_id, customerName, deliveryAddress]
+  );
+
+  function handlePhoneChange(val: string) {
+    setCustomerPhone(val);
+    const normalized = normalizePhone(val);
+    if (normalized) {
+      void searchCustomerByPhone(normalized);
+    }
+  }
 
   function addItem(item: MenuItem) {
     setCart((prev) => {
@@ -122,33 +247,92 @@ export function ServiceOrderEntry() {
     setSubmitting(true);
     setError(null);
 
-    const { data: order, error: orderError } = await supabase
+    let finalCustomerId = customerId;
+    let finalAddressId = customerAddressId;
+
+    // Paket siparişte yeni müşteri ise otomatik olarak customers ve customer_addresses'a ekle
+    if (orderType === "delivery" && !finalCustomerId) {
+      const normalized = normalizePhone(customerPhone);
+      if (normalized) {
+        try {
+          const { data: newCust } = await supabase
+            .from("customers")
+            .insert({
+              restaurant_id: staff.restaurant_id,
+              phone: normalized,
+              name: customerName.trim() || "",
+            })
+            .select("id")
+            .maybeSingle();
+
+          if (newCust) {
+            finalCustomerId = newCust.id;
+            if (deliveryAddress.trim()) {
+              const { data: newAddr } = await supabase
+                .from("customer_addresses")
+                .insert({
+                  restaurant_id: staff.restaurant_id,
+                  customer_id: newCust.id,
+                  title: "Adres",
+                  address: deliveryAddress.trim(),
+                })
+                .select("id")
+                .maybeSingle();
+              if (newAddr) finalAddressId = newAddr.id;
+            }
+          }
+        } catch {
+          // Müşteri otomatik kaydı başarısız olursa sipariş kaydını aksatmayız
+        }
+      }
+    }
+
+    // orders tablosuna kayıt payload'ı
+    const orderPayload: Record<string, unknown> = {
+      restaurant_id: staff.restaurant_id,
+      table_id: null,
+      order_type: orderType,
+      status: "hazirlaniyor", // Veritabanı kısıtlamasına (orders_status_check) uygun Türkçe durum
+      total_amount: total,
+      customer_name: customerName.trim() || null,
+      customer_phone: customerPhone.trim() || null,
+      delivery_address: orderType === "delivery" ? deliveryAddress.trim() || null : null,
+      customer_id: finalCustomerId || null,
+      customer_address_id: finalAddressId || null,
+      payment_method: paymentMethod,
+      paid_at: new Date().toISOString(),
+    };
+
+    let orderRes = await supabase
       .from("orders")
-      .insert({
-        restaurant_id: staff.restaurant_id,
-        table_id: null,
-        order_type: orderType,
-        status: "completed", // hızlı satış direkt tamamlanır
-        total_amount: total,
-        customer_name: customerName.trim() || null,
-        customer_phone: customerPhone.trim() || null,
-        delivery_address: orderType === "delivery" ? deliveryAddress.trim() || null : null,
-        payment_method: paymentMethod,
-        paid_at: new Date().toISOString(),
-      })
-      .select("id")
+      .insert(orderPayload)
+      .select("id, order_number")
       .single();
 
-    if (orderError || !order) {
-      setError(orderError?.message ?? "Sipariş oluşturulamadı");
+    // Fallback: customer_id sütununda bir veritabanı kısıt uyuşmazlığı olursa geriye dönük dene
+    if (orderRes.error && /customer_id|customer_address_id/i.test(orderRes.error.message)) {
+      delete orderPayload.customer_id;
+      delete orderPayload.customer_address_id;
+      orderRes = await supabase
+        .from("orders")
+        .insert(orderPayload)
+        .select("id, order_number")
+        .single();
+    }
+
+    if (orderRes.error || !orderRes.data) {
+      setError(orderRes.error?.message ?? "Sipariş oluşturulamadı");
       setSubmitting(false);
       return;
     }
 
+    const orderId = orderRes.data.id;
+    const orderNum = (orderRes.data as { order_number?: number })?.order_number ?? "—";
+
     const { error: itemsError } = await supabase.from("order_items").insert(
       cart.map((line) => ({
         restaurant_id: staff.restaurant_id,
-        order_id: order.id,
+        order_id: orderId,
         menu_item_id: line.menuItemId,
         quantity: line.quantity,
         note: line.note.trim() || null,
@@ -164,11 +348,47 @@ export function ServiceOrderEntry() {
     }
 
     setSubmitting(false);
-    
-    // Fiş yazdırma işlemi (basitçe tarayıcı yazdır menüsü)
-    window.print();
-    
-    router.push(`/service?tab=${orderType}`);
+
+    // Fiş Verisini Hazırla ve Yazdır
+    const receipt: ThermalReceiptProps = {
+      branchName: branding.receipt_header || branding.display_name,
+      receiptNo: String(Math.floor(100000000 + Math.random() * 900000000)),
+      complimentText: branding.receipt_footer,
+      dateStr: new Date().toLocaleString("tr-TR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+      cashierName: staff.name,
+      orderChannel: orderType === "delivery" ? "PAKET" : "GEL AL",
+      customerName: customerName.trim() || null,
+      customerPhone: customerPhone.trim() || null,
+      deliveryAddress: orderType === "delivery" ? deliveryAddress.trim() || null : null,
+      items: cart.map((line) => ({
+        quantity: line.quantity,
+        unit: "Tam",
+        name: line.name,
+        note: line.note.trim() || null,
+        unitPrice: line.unitPrice,
+        totalPrice: line.unitPrice * line.quantity,
+      })),
+      total,
+      paymentMethod,
+      paidAmount: total,
+      changeAmount: 0,
+      orderNumber: orderNum,
+    };
+
+    setReceiptData(receipt);
+
+    // Fiş yazdırma işlemi (ThermalReceipt DOM'a yerleştikten sonra)
+    setTimeout(() => {
+      window.print();
+      router.push(`/service?tab=${orderType}`);
+    }, 150);
   }
 
   if (staffLoading || loading) {
@@ -222,120 +442,99 @@ export function ServiceOrderEntry() {
             <span className="salon-muted">{cart.length} kalem</span>
           </div>
 
-          <div className="order-cart__list">
+          <div className="order-cart__lines">
             {cart.length === 0 ? (
-              <p className="salon-muted">Ürüne dokunarak sepete ekle.</p>
+              <p className="salon-muted" style={{ padding: "1rem" }}>
+                Ürün seçiniz.
+              </p>
             ) : (
               cart.map((line) => (
-                <div key={line.key} className="cart-line">
-                  <div className="cart-line__top">
-                    <strong>{line.name}</strong>
-                    <button
-                      type="button"
-                      className="cart-line__remove"
-                      onClick={() => setCart((p) => p.filter((x) => x.key !== line.key))}
-                    >
-                      Sil
-                    </button>
-                  </div>
-                  <div className="cart-line__meta">
-                    <span>{formatTry(line.unitPrice)}</span>
-                    <div className="qty-control">
+                <div key={line.key} className="order-cart__line">
+                  <div className="order-cart__line-main">
+                    <div>
+                      <div className="order-cart__line-name">{line.name}</div>
+                      <div className="order-cart__line-price">
+                        {formatTry(line.unitPrice * line.quantity)}
+                      </div>
+                    </div>
+                    <div className="order-cart__line-qty">
                       <button
-                         type="button"
-                        onClick={() =>
-                          setCart((p) =>
-                            p
-                              .map((x) =>
-                                x.key === line.key ? { ...x, quantity: x.quantity - 1 } : x,
+                        type="button"
+                        className="order-cart__qty-btn"
+                        onClick={() => {
+                          setCart((prev) =>
+                            prev
+                              .map((l) =>
+                                l.key === line.key ? { ...l, quantity: l.quantity - 1 } : l,
                               )
-                              .filter((x) => x.quantity > 0),
-                          )
-                        }
+                              .filter((l) => l.quantity > 0),
+                          );
+                        }}
                       >
                         −
                       </button>
                       <span>{line.quantity}</span>
                       <button
                         type="button"
-                        onClick={() =>
-                          setCart((p) =>
-                            p.map((x) =>
-                              x.key === line.key ? { ...x, quantity: x.quantity + 1 } : x,
+                        className="order-cart__qty-btn"
+                        onClick={() => {
+                          setCart((prev) =>
+                            prev.map((l) =>
+                              l.key === line.key ? { ...l, quantity: l.quantity + 1 } : l,
                             ),
-                          )
-                        }
+                          );
+                        }}
                       >
                         +
                       </button>
                     </div>
-                    <strong>{formatTry(line.unitPrice * line.quantity)}</strong>
                   </div>
                   <input
-                    className="cart-line__note"
-                    placeholder='Not (örn. "acısız")'
+                    type="text"
+                    className="order-cart__line-note"
+                    placeholder="Sipariş notu…"
                     value={line.note}
-                    onChange={(e) =>
-                      setCart((p) =>
-                        p.map((x) => (x.key === line.key ? { ...x, note: e.target.value } : x)),
-                      )
-                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCart((prev) =>
+                        prev.map((l) => (l.key === line.key ? { ...l, note: v } : l)),
+                      );
+                    }}
                   />
                 </div>
               ))
             )}
           </div>
 
-          <div className="order-cart__footer">
+          <div className="order-cart__foot">
             <div className="order-cart__total">
               <span>Toplam</span>
               <strong>{formatTry(total)}</strong>
             </div>
-            
-            <div className="payment-options" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "1rem", marginTop: "1rem" }}>
-              {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((method) => (
-                <button
-                  key={method}
-                  type="button"
-                  className={`ghost-btn ${paymentMethod === method ? "active-payment" : ""}`}
-                  style={{
-                    backgroundColor: paymentMethod === method ? "#e0e7ff" : "transparent",
-                    borderColor: paymentMethod === method ? "#4f46e5" : "#e5e7eb",
-                    color: paymentMethod === method ? "#4f46e5" : "inherit",
-                    padding: "0.5rem",
-                    fontSize: "0.85rem"
-                  }}
-                  onClick={() => setPaymentMethod(method)}
-                >
-                  {PAYMENT_METHOD_LABEL[method]}
-                </button>
-              ))}
-            </div>
 
-            <button
-              type="button"
-              className="login-button"
-              style={{ marginTop: 0, width: "100%" }}
-              disabled={cart.length === 0}
-              onClick={openCheckout}
-            >
-              Ödeme Al
-            </button>
+            <div style={{ marginTop: "1rem" }}>
+              <button
+                type="button"
+                className="login-button"
+                style={{ marginTop: 0 }}
+                disabled={cart.length === 0}
+                onClick={openCheckout}
+              >
+                Ödemeye Geç ({orderType === "delivery" ? "Paket" : "Gel Al"})
+              </button>
+            </div>
           </div>
         </aside>
       </div>
 
+      {/* Ödeme & Müşteri Bilgileri Modalı */}
       {checkoutOpen && (
-        <div
-          className="modal-overlay"
-          onClick={(e) => {
-            e.preventDefault();
-            setCheckoutOpen(false);
-          }}
-        >
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: "480px" }}>
             <div className="modal-header">
-              <h2 className="salon-title">Müşteri Bilgileri & Ödeme</h2>
+              <h2 className="modal-title">
+                {orderType === "delivery" ? "Paket Sipariş ve Müşteri" : "Gel Al Sipariş"}
+              </h2>
               <button
                 type="button"
                 className="modal-close"
@@ -346,8 +545,30 @@ export function ServiceOrderEntry() {
             </div>
 
             <div className="modal-body">
+              {/* Telefon Girişi */}
               <div style={{ marginBottom: "1rem" }}>
-                <label className="login-label">İsim *</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label className="login-label">Telefon *</label>
+                  {isSearchingCustomer && (
+                    <span style={{ fontSize: "0.75rem", color: "#059669" }}>Müşteri aranıyor…</span>
+                  )}
+                  {customerId && !isSearchingCustomer && (
+                    <span style={{ fontSize: "0.75rem", color: "#059669", fontWeight: 600 }}>
+                      ✓ Kayıtlı Müşteri
+                    </span>
+                  )}
+                </div>
+                <input
+                  className="login-input"
+                  value={customerPhone}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  placeholder="0555 123 45 67"
+                />
+              </div>
+
+              {/* İsim Girişi */}
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="login-label">İsim {orderType === "delivery" ? "*" : ""}</label>
                 <input
                   className="login-input"
                   value={customerName}
@@ -356,30 +577,73 @@ export function ServiceOrderEntry() {
                 />
               </div>
 
-              <div style={{ marginBottom: "1rem" }}>
-                <label className="login-label">Telefon *</label>
-                <input
-                  className="login-input"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="0555 123 45 67"
-                />
-              </div>
-
+              {/* Teslimat Adresi (Sadece Paket) */}
               {orderType === "delivery" && (
                 <div style={{ marginBottom: "1rem" }}>
-                  <label className="login-label">Adres *</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                    <label className="login-label">Adres *</label>
+                    {customerAddresses.length > 1 && (
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        ({customerAddresses.length} kayıtlı adres)
+                      </span>
+                    )}
+                  </div>
+
+                  {customerAddresses.length > 1 && (
+                    <select
+                      className="login-input"
+                      value={customerAddressId ?? ""}
+                      onChange={(e) => {
+                        const sel = customerAddresses.find((a) => a.id === e.target.value);
+                        if (sel) {
+                          setCustomerAddressId(sel.id);
+                          setDeliveryAddress(sel.address);
+                        }
+                      }}
+                      style={{ marginBottom: "0.5rem" }}
+                    >
+                      {customerAddresses.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.title}: {a.address.length > 40 ? a.address.slice(0, 40) + "…" : a.address}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
                   <textarea
                     className="login-input"
                     rows={3}
                     value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    onChange={(e) => {
+                      setDeliveryAddress(e.target.value);
+                    }}
                     placeholder="Teslimat adresi"
                   />
                 </div>
               )}
 
-              <div className="order-cart__total" style={{ marginTop: "1.5rem" }}>
+              {/* Ödeme Yöntemi */}
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="login-label">Ödeme Yöntemi</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginTop: "4px" }}>
+                  <button
+                    type="button"
+                    className={`channel-btn ${paymentMethod === "cash" ? "channel-btn--active" : ""}`}
+                    onClick={() => setPaymentMethod("cash")}
+                  >
+                    💵 Nakit
+                  </button>
+                  <button
+                    type="button"
+                    className={`channel-btn ${paymentMethod === "card" ? "channel-btn--active" : ""}`}
+                    onClick={() => setPaymentMethod("card")}
+                  >
+                    💳 Kredi Kartı
+                  </button>
+                </div>
+              </div>
+
+              <div className="order-cart__total" style={{ marginTop: "1.25rem" }}>
                 <span>Toplam Ödenecek ({PAYMENT_METHOD_LABEL[paymentMethod]})</span>
                 <strong>{formatTry(total)}</strong>
               </div>
@@ -418,7 +682,9 @@ export function ServiceOrderEntry() {
           </div>
         </div>
       )}
+
+      {/* Gizli Termal Fiş (Yazdırma sırasında aktif olur) */}
+      {receiptData && <ThermalReceipt {...receiptData} />}
     </>
   );
 }
-

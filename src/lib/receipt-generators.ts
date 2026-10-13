@@ -76,8 +76,7 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
       <body>
         <div class="receipt-container">
           <div class="receipt-header">
-            <div class="receipt-brand">MERGEN POS</div>
-            <div class="receipt-branch">${data.branchName}</div>
+            <div class="receipt-brand">${data.branchName || "MERGEN POS"}</div>
           </div>
           
           <div class="receipt-info">
@@ -85,6 +84,18 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
             <div class="receipt-row"><span>Fiş No:</span><span>${data.receiptNo}</span></div>
             <div class="receipt-row"><span>Kasiyer:</span><span>${data.cashierName}</span></div>
             <div class="receipt-row"><span>Kanal:</span><span>${data.orderChannel}</span></div>
+            ${
+              data.orderChannel === "PAKET" && (data.customerName || data.customerPhone || data.deliveryAddress)
+                ? `
+            <div style="border-top: 1px dashed #000; margin-top: 4px; padding-top: 4px;">
+              <div style="font-weight: 700; margin-bottom: 2px;">PAKET MÜŞTERİ BİLGİSİ</div>
+              ${data.customerName ? `<div class="receipt-row"><span>Müşteri:</span><strong>${data.customerName.toUpperCase()}</strong></div>` : ""}
+              ${data.customerPhone ? `<div class="receipt-row"><span>Telefon:</span><strong>${data.customerPhone}</strong></div>` : ""}
+              ${data.deliveryAddress ? `<div style="margin-top: 2px;"><span>Adres:</span><div style="font-weight: 700;">${data.deliveryAddress}</div></div>` : ""}
+            </div>
+            `
+                : ""
+            }
           </div>
           
           <div class="receipt-divider"></div>
@@ -136,7 +147,7 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
           }
           
           <div class="receipt-footer">
-            <div class="receipt-compliment">Afiyet Olsun.</div>
+            <div class="receipt-compliment">${data.complimentText || "Afiyet Olsun."}</div>
             <div class="receipt-logo">MERGEN TEKNOLOJİ</div>
           </div>
         </div>

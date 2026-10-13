@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <rect width="240" height="80" rx="12" fill="#991b1b"/>
+  <circle cx="42" cy="40" r="26" fill="#dc2626" stroke="#fef08a" stroke-width="2"/>
+  <text x="42" y="48" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="#fef08a" text-anchor="middle">İD</text>
+  <text x="82" y="38" font-family="Arial, sans-serif" font-size="20" font-weight="900" fill="#ffffff">İKRAM</text>
+  <text x="82" y="58" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#fef08a">DÖNER</text>
+</svg>
