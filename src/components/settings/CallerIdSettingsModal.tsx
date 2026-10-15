@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useCallerId } from "@/context/CallerIdContext";
+import type { DesktopSerialPortInfo } from "@/types/desktop";
 
 interface CallerIdSettingsModalProps {
   onClose: () => void;
@@ -17,11 +18,49 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
     setComPort,
     baudRate,
     setBaudRate,
+    modemMode,
+    setModemMode,
+    reconnectSerial,
     incomingCall,
     logs,
     clearLogs,
     addLog,
   } = useCallerId();
+
+  const isDesktop = typeof window !== "undefined" && Boolean(window.desktopAPI?.serial);
+  const [ports, setPorts] = useState<DesktopSerialPortInfo[]>([]);
+  const [refreshingPorts, setRefreshingPorts] = useState(false);
+  const [desktopConfig, setDesktopConfig] = useState<{ mockSerial?: boolean } | null>(null);
+
+  useEffect(() => {
+    if (isDesktop && window.desktopAPI?.getConfig) {
+      window.desktopAPI.getConfig().then((cfg) => setDesktopConfig(cfg)).catch(() => {});
+    }
+  }, [isDesktop]);
+
+  const refreshPorts = useCallback(async () => {
+    if (typeof window !== "undefined" && window.desktopAPI?.serial) {
+      setRefreshingPorts(true);
+      try {
+        const list = await window.desktopAPI.serial.listPorts();
+        setPorts(list);
+        // Eğer port seçilmemişse ve liste doluysa ilk portu seç
+        if (list.length > 0 && !comPort) {
+          setComPort(list[0].path);
+        }
+      } catch (err) {
+        console.warn("Port listesi alınamadı:", err);
+      } finally {
+        setRefreshingPorts(false);
+      }
+    }
+  }, [comPort, setComPort]);
+
+  useEffect(() => {
+    if (isDesktop) {
+      refreshPorts();
+    }
+  }, [isDesktop, refreshPorts]);
 
   const [simPhone, setSimPhone] = useState("05551234567");
   const [simulating, setSimulating] = useState(false);
@@ -139,22 +178,70 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
         {/* Seri Port & Baud Rate Ayarları */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.25rem" }}>
           <div>
-            <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: 600, fontSize: "0.85rem", color: "#334155" }}>
-              COM Port
-            </label>
-            <input
-              type="text"
-              value={comPort}
-              onChange={(e) => setComPort(e.target.value)}
-              placeholder="Örn: COM1"
-              style={{
-                width: "100%",
-                padding: "0.55rem 0.75rem",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontSize: "0.9rem",
-              }}
-            />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+              <label style={{ fontWeight: 600, fontSize: "0.85rem", color: "#334155" }}>
+                COM Port {isDesktop && <span style={{ color: "#0284c7", fontSize: "0.75rem" }}>(Masaüstü Otomatik)</span>}
+              </label>
+              {isDesktop && (
+                <button
+                  type="button"
+                  onClick={refreshPorts}
+                  title="Port Listesini Yenile"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#0284c7",
+                    fontSize: "0.75rem",
+                    cursor: "pointer",
+                    padding: 0,
+                    textDecoration: "underline",
+                  }}
+                >
+                  {refreshingPorts ? "Taranıyor…" : "Yenile"}
+                </button>
+              )}
+            </div>
+
+            {isDesktop ? (
+              <select
+                value={comPort}
+                onChange={(e) => setComPort(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "0.55rem 0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "0.9rem",
+                  background: "#fff",
+                }}
+              >
+                {ports.map((p) => (
+                  <option key={p.path} value={p.path}>
+                    {p.path} {p.manufacturer ? `(${p.manufacturer})` : ""}
+                  </option>
+                ))}
+                {comPort && !ports.some((p) => p.path === comPort) && (
+                  <option value={comPort}>{comPort} (Kayıtlı Port)</option>
+                )}
+                {ports.length === 0 && !comPort && (
+                  <option value="">Port Bulunamadı (Cihazı bağlayın)</option>
+                )}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={comPort}
+                onChange={(e) => setComPort(e.target.value)}
+                placeholder="Örn: COM1"
+                style={{
+                  width: "100%",
+                  padding: "0.55rem 0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "0.9rem",
+                }}
+              />
+            )}
           </div>
 
           <div>
@@ -181,6 +268,63 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
             </select>
           </div>
         </div>
+
+        {/* Masaüstü Mod Seçenekleri: Modem Modu & Yeniden Bağlan */}
+        {isDesktop && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "0.75rem",
+              marginBottom: "1.25rem",
+              padding: "0.6rem 0.8rem",
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "6px",
+            }}
+          >
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                cursor: "pointer",
+                fontSize: "0.82rem",
+                color: "#334155",
+                fontWeight: 500,
+              }}
+              title="Açıkken AT+VCID=1 / AT+CLIP=1 komutları gönderilir. Düz USB Caller ID kutuları için kapalı tutunuz."
+            >
+              <input
+                type="checkbox"
+                checked={modemMode}
+                onChange={(e) => setModemMode(e.target.checked)}
+                style={{ width: "16px", height: "16px", marginRight: "8px", accentColor: "#0284c7" }}
+              />
+              Modem modu (AT komutu gönder)
+            </label>
+
+            <button
+              type="button"
+              onClick={() => reconnectSerial()}
+              style={{
+                background: "#0284c7",
+                color: "#fff",
+                border: "none",
+                borderRadius: "5px",
+                padding: "0.35rem 0.75rem",
+                fontSize: "0.8rem",
+                fontWeight: 500,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <span>🔄</span> Yeniden Bağlan
+            </button>
+          </div>
+        )}
 
         {/* Çağrı Simülasyonu */}
         <div
@@ -224,6 +368,49 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
               {simulating ? "Gönderiliyor…" : "Çağrı Simüle Et"}
             </button>
           </div>
+
+          {/* Sahte Cihaz Modu (Yalnızca config.json'da mockSerial: true ise görünür) */}
+          {isDesktop && Boolean(desktopConfig?.mockSerial) && (
+            <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px dashed #cbd5e1" }}>
+              <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#475569", marginBottom: "0.4rem" }}>
+                🤖 Sahte Seri Port Cihazı (Parçalanmış Veri ve CRLF Format Testleri):
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                {(
+                  [
+                    { id: "a", label: "(a) Düz Numara" },
+                    { id: "b", label: "(b) NMBR = ..." },
+                    { id: "c", label: "(c) +CLIP Modem" },
+                    { id: "d", label: "(d) Bell202 Çok Satırlı" },
+                    { id: "e", label: "(e) CALLER ID: ..." },
+                  ] as const
+                ).map((fmt) => (
+                  <button
+                    key={fmt.id}
+                    type="button"
+                    onClick={async () => {
+                      if (window.desktopAPI?.serial) {
+                        await window.desktopAPI.serial.triggerMock(fmt.id);
+                        setSimMessage(`Sahte donanım verisi gönderildi [Format ${fmt.id.toUpperCase()}]. Ham loglara ve ekrana bakın.`);
+                      }
+                    }}
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "0.3rem 0.6rem",
+                      borderRadius: "4px",
+                      border: "1px solid #94a3b8",
+                      background: "#f1f5f9",
+                      cursor: "pointer",
+                      color: "#0f172a",
+                    }}
+                  >
+                    {fmt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {simMessage && (
             <div
               style={{

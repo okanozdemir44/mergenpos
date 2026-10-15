@@ -8,6 +8,8 @@ import { useStaffSession } from "@/hooks/useStaffSession";
 import { useBranding } from "@/context/BrandingContext";
 import { MenuPanel } from "@/components/orders/MenuPanel";
 import { ThermalReceipt, type ThermalReceiptProps } from "@/components/receipt/ThermalReceipt";
+import { printReceiptHtml } from "@/lib/unified-printer";
+import { generateCashierReceiptHtml, generateKitchenReceiptHtml } from "@/lib/receipt-generators";
 import { formatTry } from "@/lib/money";
 import { normalizePhone } from "@/lib/phone";
 import type { CartLine, MenuCategory, MenuItem, OrderType, PaymentMethod } from "@/types/pos";
@@ -30,6 +32,7 @@ export function ServiceOrderEntry() {
   const customerIdParam = searchParams.get("customerId");
   const addressIdParam = searchParams.get("addressId");
   const callerPhoneParam = searchParams.get("callerPhone");
+  const repeatOrderIdParam = searchParams.get("repeatOrderId");
 
   const { loading: staffLoading, staff, error: staffError, userId } = useStaffSession();
 
@@ -41,6 +44,8 @@ export function ServiceOrderEntry() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [repeatMessage, setRepeatMessage] = useState<{ type: "success" | "warning"; text: string } | null>(null);
+  const [repeatProcessed, setRepeatProcessed] = useState(false);
 
   // Müşteri Bilgileri
   const [customerName, setCustomerName] = useState("");
@@ -142,7 +147,64 @@ export function ServiceOrderEntry() {
     void loadCallerIdCustomer();
   }, [staff?.restaurant_id, customerIdParam, addressIdParam, callerPhoneParam]);
 
-  // Telefon girildiğinde müşteriyi otomatik ara
+  // Son siparişi tekrarlama efekti: items yüklendiğinde ve repeatOrderIdParam varsa sepeti doldur
+  useEffect(() => {
+    if (!repeatOrderIdParam || items.length === 0 || repeatProcessed || !staff?.restaurant_id) return;
+    setRepeatProcessed(true);
+
+    async function loadRepeatOrder() {
+      try {
+        const supabase = createBrowserClient();
+        const { data: orderItems, error: itemsErr } = await supabase
+          .from("order_items")
+          .select("menu_item_id, quantity, note, unit_price")
+          .eq("order_id", repeatOrderIdParam);
+
+        if (itemsErr || !orderItems || orderItems.length === 0) return;
+
+        const linesToAdd: CartLine[] = [];
+        const skippedNames: string[] = [];
+
+        for (const oi of orderItems) {
+          const menuItem = items.find((i) => i.id === oi.menu_item_id && i.is_available);
+          if (menuItem) {
+            linesToAdd.push({
+              key: `${menuItem.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              menuItemId: menuItem.id,
+              name: menuItem.name,
+              unitPrice: menuItem.price, // GÜNCEL menü fiyatından hesaplanır!
+              quantity: Number(oi.quantity) || 1,
+              note: oi.note || "",
+            });
+          } else {
+            skippedNames.push(`Ürün (${oi.menu_item_id.slice(0, 6)})`);
+          }
+        }
+
+        if (linesToAdd.length > 0) {
+          setCart(linesToAdd);
+        }
+
+        if (skippedNames.length > 0) {
+          setRepeatMessage({
+            type: "warning",
+            text: `⚠️ Son siparişteki bazı ürünler artık menüde mevcut olmadığı için sepete eklenemedi (${skippedNames.length} adet). Diğer ürünler güncel menü fiyatları ile sepete aktarıldı.`,
+          });
+        } else if (linesToAdd.length > 0) {
+          setRepeatMessage({
+            type: "success",
+            text: "✓ Son siparişteki ürünler güncel menü fiyatlarıyla sepete başarıyla eklendi.",
+          });
+        }
+      } catch (err) {
+        console.warn("Tekrar sipariş yüklenirken hata:", err);
+      }
+    }
+
+    void loadRepeatOrder();
+  }, [repeatOrderIdParam, items, repeatProcessed, staff?.restaurant_id]);
+
+  // Telefon girildiğinde müşteriyi otomatik ara (hem ana hem ek telefonlarda)
   const searchCustomerByPhone = useCallback(
     async (rawPhone: string) => {
       if (!staff?.restaurant_id) return;
@@ -152,6 +214,8 @@ export function ServiceOrderEntry() {
       setIsSearchingCustomer(true);
       try {
         const supabase = createBrowserClient();
+
+        // 1. Ana telefonda ara
         const { data: cust } = await supabase
           .from("customers")
           .select("*")
@@ -159,17 +223,43 @@ export function ServiceOrderEntry() {
           .eq("phone", normalized)
           .maybeSingle();
 
-        if (cust) {
-          setCustomerId(cust.id);
+        let matchedCustomer = cust;
+
+        // 2. Bulunamadıysa ek telefonlarda (customer_phones) ara
+        if (!matchedCustomer) {
+          try {
+            const { data: phoneRow } = await supabase
+              .from("customer_phones")
+              .select("customer_id")
+              .eq("restaurant_id", staff.restaurant_id)
+              .eq("phone", normalized)
+              .maybeSingle();
+
+            if (phoneRow?.customer_id) {
+              const { data: parentCust } = await supabase
+                .from("customers")
+                .select("*")
+                .eq("restaurant_id", staff.restaurant_id)
+                .eq("id", phoneRow.customer_id)
+                .maybeSingle();
+              matchedCustomer = parentCust;
+            }
+          } catch {
+            // customer_phones tablosu henüz yoksa yut
+          }
+        }
+
+        if (matchedCustomer) {
+          setCustomerId(matchedCustomer.id);
           if (!customerName.trim()) {
-            setCustomerName(cust.name || "");
+            setCustomerName(matchedCustomer.name || "");
           }
 
           const { data: addrs } = await supabase
             .from("customer_addresses")
             .select("*")
             .eq("restaurant_id", staff.restaurant_id)
-            .eq("customer_id", cust.id)
+            .eq("customer_id", matchedCustomer.id)
             .order("created_at", { ascending: false });
 
           if (addrs && addrs.length > 0) {
@@ -382,13 +472,38 @@ export function ServiceOrderEntry() {
       orderNumber: orderNum,
     };
 
-    setReceiptData(receipt);
+    const autoPrint = typeof window !== "undefined" && localStorage.getItem("mergen_auto_print_receipts") === "true";
+    const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
+    const mutfakPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_MUTFAK") : null;
 
-    // Fiş yazdırma işlemi (ThermalReceipt DOM'a yerleştikten sonra)
-    setTimeout(() => {
-      window.print();
-      router.push(`/service?tab=${orderType}`);
-    }, 150);
+    if (autoPrint && (kasaPrinter || mutfakPrinter)) {
+      try {
+        if (kasaPrinter) {
+          const kasaHtml = generateCashierReceiptHtml(receipt);
+          await printReceiptHtml(kasaPrinter, kasaHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
+        }
+        if (mutfakPrinter) {
+          const mutfakHtml = generateKitchenReceiptHtml(receipt);
+          await printReceiptHtml(mutfakPrinter, mutfakHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
+        }
+        router.push(`/service?tab=${orderType}`);
+      } catch (printErr) {
+        console.error("Yazıcı hatası:", printErr);
+        // Fallback: browser print
+        setReceiptData(receipt);
+        setTimeout(() => {
+          window.print();
+          router.push(`/service?tab=${orderType}`);
+        }, 150);
+      }
+    } else {
+      // Eski varsayılan davranış: ThermalReceipt DOM'a yerleştikten sonra window.print()
+      setReceiptData(receipt);
+      setTimeout(() => {
+        window.print();
+        router.push(`/service?tab=${orderType}`);
+      }, 150);
+    }
   }
 
   if (staffLoading || loading) {
@@ -432,6 +547,33 @@ export function ServiceOrderEntry() {
               </h1>
             </div>
           </div>
+
+          {repeatMessage && (
+            <div
+              style={{
+                background: repeatMessage.type === "warning" ? "#fffbeb" : "#f0fdf4",
+                border: "1px solid " + (repeatMessage.type === "warning" ? "#fde68a" : "#bbf7d0"),
+                color: repeatMessage.type === "warning" ? "#b45309" : "#166534",
+                padding: "0.6rem 0.85rem",
+                borderRadius: "8px",
+                marginBottom: "0.75rem",
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>{repeatMessage.text}</span>
+              <button
+                type="button"
+                onClick={() => setRepeatMessage(null)}
+                style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 700, color: "inherit", marginLeft: "0.5rem" }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           <MenuPanel categories={categories} items={items} onAdd={addItem} />
         </div>

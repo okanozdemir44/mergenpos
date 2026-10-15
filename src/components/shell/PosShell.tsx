@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStaffSession } from "@/hooks/useStaffSession";
+import { useRestaurantFeatures } from "@/hooks/useRestaurantFeatures";
 import { useState } from "react";
 import PrinterSettingsModal from "../settings/PrinterSettingsModal";
 import CallerIdSettingsModal from "../settings/CallerIdSettingsModal";
@@ -11,23 +12,33 @@ import { CallerIdProvider } from "@/context/CallerIdContext";
 
 import { BrandingProvider, useBranding } from "@/context/BrandingContext";
 
-const NAV = [
+type NavItem = { href: string; label: string; icon: string; match?: string };
+
+const NAV: NavItem[] = [
   { href: "/salon", label: "Hızlı Satış", icon: "⚡" },
   { href: "/salon", label: "Paket (Kurye)", icon: "🛵" },
   { href: "/reports", label: "Rapor", icon: "📊" },
+  { href: "/reports/detailed", label: "Detaylı Raporlar", icon: "📈", match: "/reports/detailed" },
   { href: "/stock", label: "Menü Yönetimi", icon: "🗂️" },
-] as const;
+];
 
 function PosShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { staff } = useStaffSession();
   const { branding } = useBranding();
+  const { callerIdEnabled } = useRestaurantFeatures();
   const [showPrinterSettings, setShowPrinterSettings] = useState(false);
   const [showCallerIdSettings, setShowCallerIdSettings] = useState(false);
   const hideShell = pathname.startsWith("/login");
 
   if (hideShell) {
     return <>{children}</>;
+  }
+
+  // Build nav items: conditionally add Müşterilerim if caller ID license is active
+  const navItems: NavItem[] = [...NAV];
+  if (callerIdEnabled) {
+    navItems.push({ href: "/customers", label: "Müşterilerim", icon: "👥" });
   }
 
   return (
@@ -49,11 +60,11 @@ function PosShellInner({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="pos-side-nav">
-          {NAV.map((item) => {
-            const matchPath = "match" in item ? item.match : item.href;
+          {navItems.map((item) => {
+            const matchPath = item.match || item.href;
             const active =
               pathname === matchPath ||
-              pathname.startsWith(`${matchPath}/`) ||
+              (matchPath !== "/reports" && pathname.startsWith(`${matchPath}/`)) ||
               (matchPath === "/service" && pathname.startsWith("/service"));
             return (
               <Link

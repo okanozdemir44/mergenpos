@@ -44,6 +44,13 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setAutoPrintEnabled(localStorage.getItem("mergen_auto_print_receipts") === "true");
+    }
+  }, []);
 
   const load = useCallback(
     async (restaurantId: string) => {
@@ -148,6 +155,60 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
 
   function newOrder() {
     router.push(`/service/new?type=${orderType}`);
+  }
+
+  async function reprintOrder(order: OrderRow) {
+    if (!staff) return;
+    try {
+      const supabase = createBrowserClient();
+      const { data: items } = await supabase
+        .from("order_items")
+        .select("quantity, note, unit_price, menu_items(name)")
+        .eq("order_id", order.id);
+
+      const receipt: any = {
+        branchName: "Mergen POS",
+        receiptNo: order.id.slice(0, 8),
+        complimentText: order.order_type === "delivery" ? "Paket Servis" : "Gel Al",
+        dateStr: new Date(order.created_at).toLocaleString("tr-TR"),
+        cashierName: staff.name,
+        orderChannel: order.order_type === "delivery" ? "PAKET" : "GEL AL",
+        customerName: order.customer_name || null,
+        customerPhone: order.customer_phone || null,
+        deliveryAddress: order.delivery_address || null,
+        items: (items || []).map((it: any) => ({
+          quantity: Number(it.quantity) || 1,
+          unit: "Tam",
+          name: (Array.isArray(it.menu_items) ? it.menu_items[0]?.name : it.menu_items?.name) || "Ürün",
+          note: it.note || null,
+          unitPrice: Number(it.unit_price) || 0,
+          totalPrice: (Number(it.unit_price) || 0) * (Number(it.quantity) || 1),
+        })),
+        total: order.total_amount,
+        paymentMethod: order.payment_method || "cash",
+        paidAmount: order.total_amount,
+        changeAmount: 0,
+        orderNumber: order.id.slice(0, 4),
+      };
+
+      const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
+      const mutfakPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_MUTFAK") : null;
+
+      if (kasaPrinter || mutfakPrinter) {
+        const { printReceiptHtml } = await import("@/lib/unified-printer");
+        const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("@/lib/receipt-generators");
+        if (kasaPrinter) {
+          const kasaHtml = generateCashierReceiptHtml(receipt);
+          await printReceiptHtml(kasaPrinter, kasaHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
+        }
+        if (mutfakPrinter) {
+          const mutfakHtml = generateKitchenReceiptHtml(receipt);
+          await printReceiptHtml(mutfakPrinter, mutfakHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
+        }
+      }
+    } catch (err) {
+      console.error("Yeniden yazdırma hatası:", err);
+    }
   }
 
   if (staffLoading) return <p className="salon-muted">Yükleniyor…</p>;
@@ -297,6 +358,19 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
                             }}
                           >
                             Teslim Edildi
+                          </button>
+                        )}
+                        {autoPrintEnabled && (
+                          <button
+                            type="button"
+                            title="Fiş Yazdır (Kasa & Mutfak)"
+                            className="bg-gray-200 text-gray-700 font-bold py-2 px-3 rounded-lg text-sm hover:bg-gray-300 transition-colors"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              void reprintOrder(o);
+                            }}
+                          >
+                            🖨️
                           </button>
                         )}
                       </div>

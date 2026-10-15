@@ -5,6 +5,8 @@ import type { BillLine, PaymentMethod } from "@/types/pos";
 import { PAYMENT_METHOD_LABEL } from "@/types/pos";
 import { formatTry } from "@/lib/money";
 
+import { printReceiptHtml } from "@/lib/unified-printer";
+
 type Props = {
   restaurantName: string;
   tableName: string;
@@ -39,7 +41,7 @@ export function BillCloseModal({
 
   if (!open) return null;
 
-  function printInfoSlip() {
+  async function printInfoSlip() {
     const now = new Date();
     const rows = lines
       .map(
@@ -56,13 +58,13 @@ export function BillCloseModal({
     const html = `<!doctype html>
 <html><head><meta charset="utf-8"/><title>Bilgi Fişi</title>
 <style>
-  body{font-family:ui-monospace,Consolas,monospace;padding:16px;color:#111}
-  h1{font-size:16px;margin:0 0 4px}
-  h2{font-size:14px;margin:0 0 12px;font-weight:600}
+  body{font-family:ui-monospace,Consolas,monospace;padding:8px;color:#111;margin:0;}
+  h1{font-size:16px;margin:0 0 4px;text-align:center;}
+  h2{font-size:13px;margin:0 0 8px;font-weight:600;text-align:center;}
   table{width:100%;border-collapse:collapse;font-size:12px}
-  th,td{padding:6px 4px;border-bottom:1px solid #ddd;vertical-align:top}
-  .total{font-size:16px;font-weight:700;margin-top:12px;display:flex;justify-content:space-between}
-  .disclaimer{margin-top:18px;font-size:13px;font-weight:800;text-align:center;border-top:2px dashed #333;padding-top:12px}
+  th,td{padding:4px 2px;border-bottom:1px solid #ddd;vertical-align:top}
+  .total{font-size:15px;font-weight:700;margin-top:10px;display:flex;justify-content:space-between}
+  .disclaimer{margin-top:14px;font-size:11px;font-weight:800;text-align:center;border-top:2px dashed #333;padding-top:8px}
 </style></head><body>
   <h1>${restaurantName}</h1>
   <h2>${tableName} · ${now.toLocaleString("tr-TR")}</h2>
@@ -72,12 +74,23 @@ export function BillCloseModal({
   </table>
   <div class="total"><span>Genel Toplam</span><span>${formatTry(total)}</span></div>
   <div class="disclaimer">BİLGİ FİŞİDİR, MALİ DEĞERİ YOKTUR</div>
-  <script>window.onload=()=>{window.print();}</script>
 </body></html>`;
 
+    const autoPrint = typeof window !== "undefined" && localStorage.getItem("mergen_auto_print_receipts") === "true";
+    const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
+    if (autoPrint && kasaPrinter) {
+      try {
+        await printReceiptHtml(kasaPrinter, html);
+        return;
+      } catch (err) {
+        console.warn("Masaüstü/QZ bilgi fişi basılamadı, tarayıcı penceresine yönlendiriliyor:", err);
+      }
+    }
+
+    const browserHtml = html.replace("</body>", "<script>window.onload=()=>{window.print();}</script></body>");
     const w = window.open("", "_blank", "noopener,noreferrer,width=420,height=640");
     if (!w) return;
-    w.document.write(html);
+    w.document.write(browserHtml);
     w.document.close();
   }
 

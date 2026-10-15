@@ -278,17 +278,17 @@ export function SalonFloor() {
 
       if (kasaPrinter || mutfakPrinter) {
         try {
-          const { printHtml } = await import("../../lib/qz");
+          const { printReceiptHtml } = await import("../../lib/unified-printer");
           const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("../../lib/receipt-generators");
 
           if (kasaPrinter) {
             const kasaHtml = generateCashierReceiptHtml(newReceipt);
-            await printHtml(kasaPrinter, kasaHtml).catch(e => console.error("Kasa yazıcı hatası:", e));
+            await printReceiptHtml(kasaPrinter, kasaHtml).catch(e => console.error("Kasa yazıcı hatası:", e));
           }
           
           if (mutfakPrinter) {
             const mutfakHtml = generateKitchenReceiptHtml(newReceipt);
-            await printHtml(mutfakPrinter, mutfakHtml).catch(e => console.error("Mutfak yazıcı hatası:", e));
+            await printReceiptHtml(mutfakPrinter, mutfakHtml).catch(e => console.error("Mutfak yazıcı hatası:", e));
           }
           
           resetAfterPrint();

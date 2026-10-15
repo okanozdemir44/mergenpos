@@ -237,6 +237,43 @@ export function OrderEntryScreen({ tableId }: Props) {
       .eq("id", table.id)
       .eq("restaurant_id", staff.restaurant_id);
 
+    const autoPrint = typeof window !== "undefined" && localStorage.getItem("mergen_auto_print_receipts") === "true";
+    const mutfakPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_MUTFAK") : null;
+    if (autoPrint && mutfakPrinter) {
+      try {
+        const { printReceiptHtml } = await import("@/lib/unified-printer");
+        const { generateKitchenReceiptHtml } = await import("@/lib/receipt-generators");
+        const itemsToPrint = [...draft]; // Yalnızca bu gönderimde eklenen YENİ kalemler basılır
+        const kitchenReceiptData: any = {
+          branchName: restaurantName,
+          receiptNo: order.id.slice(0, 8),
+          complimentText: "Masa Siparişi",
+          dateStr: new Date().toLocaleString("tr-TR"),
+          cashierName: staff.name,
+          orderChannel: table.name,
+          customerName: null,
+          customerPhone: null,
+          deliveryAddress: null,
+          items: itemsToPrint.map((line) => ({
+            quantity: line.quantity,
+            unit: "Tam",
+            name: line.name,
+            note: line.note.trim() || null,
+            unitPrice: line.unitPrice,
+            totalPrice: line.unitPrice * line.quantity,
+          })),
+          total: draftTotal,
+          paymentMethod: "cash",
+          paidAmount: draftTotal,
+          changeAmount: 0,
+        };
+        const kitchenHtml = generateKitchenReceiptHtml(kitchenReceiptData);
+        await printReceiptHtml(mutfakPrinter, kitchenHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
+      } catch (printErr) {
+        console.error("Mutfak fişi basılamadı:", printErr);
+      }
+    }
+
     setDraft([]);
     setTable((t) => (t ? { ...t, status: "occupied" } : t));
     await loadAdisyon(staff.restaurant_id);
@@ -294,6 +331,42 @@ export function OrderEntryScreen({ tableId }: Props) {
     if (te) {
       setError(te.message);
       return;
+    }
+
+    const autoPrint = typeof window !== "undefined" && localStorage.getItem("mergen_auto_print_receipts") === "true";
+    const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
+    if (autoPrint && kasaPrinter && sent.length > 0) {
+      try {
+        const { printReceiptHtml } = await import("@/lib/unified-printer");
+        const { generateCashierReceiptHtml } = await import("@/lib/receipt-generators");
+        const cashierReceiptData: any = {
+          branchName: restaurantName,
+          receiptNo: ids[0]?.slice(0, 8) || String(Math.floor(100000000 + Math.random() * 900000000)),
+          complimentText: "Bizi Tercih Ettiğiniz İçin Teşekkür Ederiz",
+          dateStr: new Date().toLocaleString("tr-TR"),
+          cashierName: staff.name,
+          orderChannel: table.name,
+          customerName: null,
+          customerPhone: null,
+          deliveryAddress: null,
+          items: sent.map((line) => ({
+            quantity: line.quantity,
+            unit: "Tam",
+            name: line.name,
+            note: line.note || null,
+            unitPrice: line.unit_price,
+            totalPrice: line.unit_price * line.quantity,
+          })),
+          total: sentTotal,
+          paymentMethod: method,
+          paidAmount: sentTotal,
+          changeAmount: 0,
+        };
+        const cashierHtml = generateCashierReceiptHtml(cashierReceiptData);
+        await printReceiptHtml(kasaPrinter, cashierHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
+      } catch (printErr) {
+        console.error("Kasa fişi basılamadı:", printErr);
+      }
     }
 
     setBillOpen(false);
