@@ -30,14 +30,40 @@ export async function POST(request: Request) {
       );
     }
 
-    // Compare passwords
-    const isValid = await bcrypt.compare(password, user.password_hash);
-    
+    // Compare passwords:
+    // 1. Direkt düz metin şifre kontrolü (Supabase tablosundaki password veya password_hash alanı)
+    const directMatch =
+      (user.password && user.password === password) ||
+      (user.password_hash && user.password_hash === password);
+
+    let isValid = Boolean(directMatch);
+
+    // 2. Eski bcrypt hash'leri için geri uyumluluk
+    if (!isValid && user.password_hash && user.password_hash.startsWith("$2")) {
+      try {
+        isValid = await bcrypt.compare(password, user.password_hash);
+      } catch {
+        isValid = false;
+      }
+    }
+
     if (!isValid) {
       return NextResponse.json(
         { error: "Geçersiz kullanıcı adı veya şifre" },
         { status: 401 }
       );
+    }
+
+    // Başarılı girişte password sütunu boşsa düz metin şifreyi tabloya kaydet (Supabase'de doğrudan görünmesi için)
+    if (!user.password) {
+      try {
+        await supabase
+          .from("app_users")
+          .update({ password })
+          .eq("id", user.id);
+      } catch (syncErr) {
+        console.warn("Could not sync plain text password to app_users:", syncErr);
+      }
     }
 
     // Create session
@@ -55,7 +81,7 @@ export async function POST(request: Request) {
   } catch (err: any) {
     console.error("Login API Error:", err);
     return NextResponse.json(
-      { error: "Bir hata oluştu" },
+      { error: err?.message || "Giriş yapılırken bir hata oluştu" },
       { status: 500 }
     );
   }
