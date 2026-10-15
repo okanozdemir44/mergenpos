@@ -1,0 +1,74 @@
+import { contextBridge, ipcRenderer } from "electron";
+import {
+  DesktopAPI,
+  DesktopConfig,
+  DesktopPrintOptions,
+  DesktopPrinterInfo,
+  SerialDataEvent,
+  SerialPortInfo,
+  SerialStatus,
+} from "../types/desktop";
+
+const appVersion = process.env.npm_package_version || "1.0.0";
+
+const desktopAPI: DesktopAPI = {
+  isElectron: true,
+  version: appVersion,
+  platform: process.platform,
+  getConfig: (): Promise<DesktopConfig> => {
+    return ipcRenderer.invoke("desktop:get-config");
+  },
+  onIncomingCall: (callback: (phone: string) => void) => {
+    const handler = (_event: any, phone: string) => callback(phone);
+    ipcRenderer.on("callerid:incoming", handler);
+    return () => {
+      ipcRenderer.removeListener("callerid:incoming", handler);
+    };
+  },
+  serial: {
+    listPorts: (): Promise<SerialPortInfo[]> => {
+      return ipcRenderer.invoke("serial:list-ports");
+    },
+    open: (
+      port: string,
+      baudRate: number,
+      enableModemMode?: boolean
+    ): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke("serial:open", { port, baudRate, enableModemMode });
+    },
+    close: (): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke("serial:close");
+    },
+    status: (): Promise<SerialStatus> => {
+      return ipcRenderer.invoke("serial:status");
+    },
+    onData: (callback: (data: SerialDataEvent) => void) => {
+      const handler = (_event: any, data: SerialDataEvent) => callback(data);
+      ipcRenderer.on("serial:data", handler);
+      return () => {
+        ipcRenderer.removeListener("serial:data", handler);
+      };
+    },
+    onStatus: (callback: (status: SerialStatus) => void) => {
+      const handler = (_event: any, status: SerialStatus) => callback(status);
+      ipcRenderer.on("serial:status", handler);
+      return () => {
+        ipcRenderer.removeListener("serial:status", handler);
+      };
+    },
+    triggerMock: (sampleType?: "a" | "b" | "c" | "d" | "e"): Promise<void> => {
+      return ipcRenderer.invoke("serial:trigger-mock", sampleType);
+    },
+  },
+  print: {
+    listPrinters: (): Promise<DesktopPrinterInfo[]> => {
+      return ipcRenderer.invoke("print:list-printers");
+    },
+    printHtml: (options: DesktopPrintOptions): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke("print:print-html", options);
+    },
+  },
+};
+
+// Web sayfasına izole edilmiş dar ve güvenli arayüzü sun
+contextBridge.exposeInMainWorld("desktopAPI", desktopAPI);

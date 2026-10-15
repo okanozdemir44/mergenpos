@@ -1,0 +1,70 @@
+{
+  "name": "mergen-pos-desktop",
+  "version": "1.0.0",
+  "description": "Mergen POS Windows Desktop Shell",
+  "main": "dist-electron/main/index.js",
+  "author": "Mergen POS",
+  "license": "UNLICENSED",
+  "scripts": {
+    "clean": "node -e \"const fs = require('fs'); ['dist-electron', 'dist'].forEach(d => { if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true }); });\"",
+    "build:ts": "tsc",
+    "build": "npm run clean && npm run build:ts",
+    "test": "npm run build:ts && node --test dist-electron/callerIdParser.test.js dist-electron/printQueue.test.js",
+    "start": "npm run build:ts && electron .",
+    "dev": "npm run build:ts && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.mergenpos.desktop",
+    "productName": "Mergen POS",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "assets/**/*",
+      "config.json"
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "**/@serialport/**"
+    ],
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "publish": {
+      "provider": "github",
+      "owner": "<kullanici>",
+      "repo": "mergenpos-releases"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mergen POS"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "serialport": "^13.0.0"
+  }
+}

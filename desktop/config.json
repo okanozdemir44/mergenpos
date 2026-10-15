@@ -1,0 +1,20 @@
+{
+  "appName": "Mergen POS",
+  "appUrl": "https://ornek-canli-adres.vercel.app",
+  "window": {
+    "width": 1366,
+    "height": 768,
+    "minWidth": 1024,
+    "minHeight": 600,
+    "kiosk": false,
+    "fullscreen": false,
+    "maximizeOnStart": true
+  },
+  "autoStartOnBoot": true,
+  "retryIntervalMs": 5000,
+  "mockSerial": false,
+  "update": {
+    "owner": "<kullanici>",
+    "repo": "mergenpos-releases"
+  }
+}
