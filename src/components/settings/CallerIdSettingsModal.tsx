@@ -20,6 +20,7 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
     setBaudRate,
     modemMode,
     setModemMode,
+    serialStatus,
     reconnectSerial,
     incomingCall,
     logs,
@@ -61,6 +62,29 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
       refreshPorts();
     }
   }, [isDesktop, refreshPorts]);
+
+  // Bağlantı durumunu hesapla (bağlı / bağlı değil / meşgul)
+  const connectionState = React.useMemo(() => {
+    if (!isDesktop) {
+      return { status: "not_desktop", label: "Tarayıcı Modu (Masaüstü gerekli)", color: "#64748b", bg: "#f1f5f9" };
+    }
+    if (serialStatus?.isOpen) {
+      return { status: "connected", label: "Bağlı", color: "#16a34a", bg: "#dcfce7" };
+    }
+    const err = (serialStatus?.error || "").toLowerCase();
+    if (
+      err.includes("kullanılıyor") ||
+      err.includes("busy") ||
+      err.includes("ebusy") ||
+      err.includes("access is denied") ||
+      err.includes("permission denied")
+    ) {
+      return { status: "busy", label: "Meşgul (Vega veya başka program açık)", color: "#dc2626", bg: "#fee2e2" };
+    }
+    return { status: "disconnected", label: "Bağlı değil", color: "#64748b", bg: "#f1f5f9" };
+  }, [isDesktop, serialStatus]);
+
+  const selectedPortInfo = ports.find((p) => p.path.toUpperCase() === (comPort || "").toUpperCase());
 
   const [simPhone, setSimPhone] = useState("05551234567");
   const [simulating, setSimulating] = useState(false);
@@ -175,8 +199,50 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
           </div>
         </div>
 
+        {/* Bağlantı Durumu Rozeti */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0.6rem 0.85rem",
+            background: connectionState.bg,
+            border: `1px solid ${connectionState.color}33`,
+            borderRadius: "8px",
+            marginBottom: "1rem",
+            fontSize: "0.85rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontWeight: 600, color: "#334155" }}>Bağlantı Durumu:</span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.35rem",
+                padding: "0.2rem 0.55rem",
+                borderRadius: "999px",
+                background: "#fff",
+                border: `1px solid ${connectionState.color}44`,
+                fontWeight: 700,
+                color: connectionState.color,
+                fontSize: "0.8rem",
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: connectionState.color }} />
+              {connectionState.label}
+            </span>
+          </div>
+
+          {serialStatus?.port && (
+            <span style={{ fontSize: "0.8rem", color: "#64748b", fontFamily: "monospace" }}>
+              {serialStatus.port} ({serialStatus.baudRate || baudRate} baud)
+            </span>
+          )}
+        </div>
+
         {/* Seri Port & Baud Rate Ayarları */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.25rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "0.75rem" }}>
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
               <label style={{ fontWeight: 600, fontSize: "0.85rem", color: "#334155" }}>
@@ -211,20 +277,24 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
                   padding: "0.55rem 0.75rem",
                   borderRadius: "6px",
                   border: "1px solid #cbd5e1",
-                  fontSize: "0.9rem",
+                  fontSize: "0.85rem",
                   background: "#fff",
                 }}
               >
-                {ports.map((p) => (
-                  <option key={p.path} value={p.path}>
-                    {p.path} {p.manufacturer ? `(${p.manufacturer})` : ""}
-                  </option>
-                ))}
+                {ports.map((p) => {
+                  const vidPid = p.vendorId || p.productId ? ` [VID:${p.vendorId || "-"} PID:${p.productId || "-"}]` : "";
+                  const mfg = p.manufacturer ? ` - ${p.manufacturer}` : "";
+                  return (
+                    <option key={p.path} value={p.path}>
+                      {p.path}{mfg}{vidPid}
+                    </option>
+                  );
+                })}
                 {comPort && !ports.some((p) => p.path === comPort) && (
-                  <option value={comPort}>{comPort} (Kayıtlı Port)</option>
+                  <option value={comPort}>{comPort} (Kayıtlı Port - Bağlı Değil)</option>
                 )}
                 {ports.length === 0 && !comPort && (
-                  <option value="">Port Bulunamadı (Cihazı bağlayın)</option>
+                  <option value="">COM port bulunamadı</option>
                 )}
               </select>
             ) : (
@@ -268,6 +338,50 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
             </select>
           </div>
         </div>
+
+        {/* Boş COM Port Teşhis / Yönlendirme Mesajı */}
+        {isDesktop && ports.length === 0 && (
+          <div
+            style={{
+              padding: "0.75rem 0.9rem",
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: "8px",
+              marginBottom: "1.1rem",
+              fontSize: "0.82rem",
+              color: "#92400e",
+              lineHeight: "1.45",
+            }}
+          >
+            <strong style={{ display: "block", marginBottom: "0.25rem", color: "#b45309" }}>
+              ⚠️ COM Port Teşhisi:
+            </strong>
+            COM port bulunamadı. Aygıt Yöneticisi'nde Bağlantı Noktaları (COM ve LPT) altına bakın, USB cihaz takılı mı, Vega kapalı mı kontrol edin. Telefonun kendisi bilgisayara veri göndermiyor olabilir; bu durumda hat ile telefon arasına USB Caller ID cihazı gerekir.
+          </div>
+        )}
+
+        {/* Seçili Port Ayrıntıları (Üretici, VID, PID) */}
+        {isDesktop && selectedPortInfo && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.5rem 1rem",
+              padding: "0.45rem 0.75rem",
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "6px",
+              marginBottom: "1rem",
+              fontSize: "0.78rem",
+              color: "#475569",
+            }}
+          >
+            <span><strong>Port:</strong> {selectedPortInfo.path}</span>
+            <span><strong>Üretici:</strong> {selectedPortInfo.manufacturer || "Standart Seri Cihaz"}</span>
+            <span><strong>Vendor ID:</strong> {selectedPortInfo.vendorId || "—"}</span>
+            <span><strong>Product ID:</strong> {selectedPortInfo.productId || "—"}</span>
+          </div>
+        )}
 
         {/* Masaüstü Mod Seçenekleri: Modem Modu & Yeniden Bağlan */}
         {isDesktop && (

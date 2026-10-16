@@ -57,6 +57,30 @@ export function setAutoPrintEnabled(enabled: boolean): void {
   localStorage.setItem("mergen_auto_print_receipts", String(enabled));
 }
 
+function notifyPrinterWarning(printerName: string, rawError?: string) {
+  if (typeof window === "undefined") return;
+
+  const lower = (rawError || "").toLowerCase();
+  let message = `"${printerName}" yazıcısı yanıt vermedi.`;
+
+  if (lower.includes("bulunamadı") || lower.includes("not found")) {
+    message = `"${printerName}" yazıcısı bulunamadı. Lütfen Windows yazıcı ayarlarını kontrol edin.`;
+  } else if (lower.includes("zaman aşımı") || lower.includes("timeout")) {
+    message = `"${printerName}" yazıcısı zaman aşımına uğradı. Yazıcı çevrimdışı veya kağıdı bitmiş olabilir.`;
+  } else if (lower.includes("çevrimdışı") || lower.includes("offline")) {
+    message = `"${printerName}" yazıcısı çevrimdışı. Kablo veya ağ (LAN) bağlantısını kontrol edin.`;
+  } else if (rawError) {
+    message = `"${printerName}" yazdırma uyarısı: ${rawError}`;
+  }
+
+  // Arayüzde kasiyere anlık kısa Türkçe uyarı göstermek için CustomEvent fırlat
+  window.dispatchEvent(
+    new CustomEvent("mergen-printer-warning", {
+      detail: { printerName, message },
+    })
+  );
+}
+
 export async function printReceiptHtml(
   printerOrParams: string | PrintReceiptParams,
   maybeHtml?: string,
@@ -96,24 +120,35 @@ export async function printReceiptHtml(
         return;
       }
       console.warn("[UnifiedPrinter] Masaüstü yazdırma başarısız oldu, QZ Tray'e yedekleniyor:", res.error);
-    } catch (desktopErr) {
+      notifyPrinterWarning(printerName, res.error);
+    } catch (desktopErr: any) {
       console.warn("[UnifiedPrinter] Masaüstü yazdırma çağrı hatası, QZ Tray'e yedekleniyor:", desktopErr);
+      notifyPrinterWarning(printerName, desktopErr?.message || String(desktopErr));
     }
   }
 
   // 2. QZ Tray ile yazdır (tarayıcı veya masaüstü yedeği)
-  await printHtmlQz(printerName, htmlContent);
+  try {
+    await printHtmlQz(printerName, htmlContent);
+  } catch (qzErr: any) {
+    notifyPrinterWarning(printerName, qzErr?.message || String(qzErr));
+    throw qzErr;
+  }
 }
 
 /**
  * Test fişi HTML'i üretir (80mm / 58mm, Türkçe karakterler ve kesme çizgisi)
  */
-export function generateTestReceiptHtml(branchName: string = "Mergen POS", paperWidthMm: number = 80): string {
+export function generateTestReceiptHtml(
+  branchName: string = "Mergen POS",
+  paperWidthMm: number = 80,
+  roleTitle: string = "TEST FİŞİ"
+): string {
   const now = new Date().toLocaleString("tr-TR");
   return `
     <div style="font-family: 'Courier New', Courier, monospace; width: 100%; padding: 5px; color: #000; font-size: 13px; line-height: 1.4;">
       <div style="text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 4px;">
-        *** YAZICI TEST FİŞİ ***
+        *** ${roleTitle.toUpperCase()} ***
       </div>
       <div style="text-align: center; font-size: 14px; margin-bottom: 8px;">
         ${branchName}

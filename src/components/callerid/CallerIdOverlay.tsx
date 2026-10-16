@@ -81,6 +81,7 @@ export function CallerIdOverlay() {
     linkPhoneToCustomer,
     startOrderForActiveCall,
     startRepeatOrder,
+    updateActiveCallAddress,
     hasLicense,
     enabled,
   } = useCallerId();
@@ -88,6 +89,12 @@ export function CallerIdOverlay() {
 
   // Mode tab for unknown caller: 'new' | 'link'
   const [unknownMode, setUnknownMode] = useState<"new" | "link">("new");
+
+  // Adres düzenleme modal state'i
+  const [editingAddress, setEditingAddress] = useState<CustomerAddress | null>(null);
+  const [editAddressValue, setEditAddressValue] = useState("");
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [editAddressError, setEditAddressError] = useState<string | null>(null);
 
   // Yeni müşteri form state'i
   const [newName, setNewName] = useState("");
@@ -110,6 +117,24 @@ export function CallerIdOverlay() {
 
   // Copy all feedback
   const [allCopied, setAllCopied] = useState(false);
+
+  const handleSaveEditedAddress = async () => {
+    if (!editingAddress) return;
+    if (!editAddressValue.trim()) {
+      setEditAddressError("Adres boş bırakılamaz");
+      return;
+    }
+    setSavingAddress(true);
+    setEditAddressError(null);
+    try {
+      await updateActiveCallAddress(editingAddress.id, editAddressValue.trim(), "Adres");
+      setEditingAddress(null);
+    } catch (err: any) {
+      setEditAddressError(err?.message || "Adres güncellenemedi");
+    } finally {
+      setSavingAddress(false);
+    }
+  };
 
   // İlk adres id'sini veya en son sipariş verilen adresi varsayılan olarak seç
   useEffect(() => {
@@ -459,6 +484,29 @@ export function CallerIdOverlay() {
                         <div style={{ flex: 1, userSelect: "text" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "2px" }}>
                             <strong style={{ color: "#0f172a" }}>{addr.title}</strong>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setEditingAddress(addr);
+                                setEditAddressValue(addr.address);
+                                setEditAddressError(null);
+                              }}
+                              style={{
+                                background: "#eff6ff",
+                                border: "1px solid #bfdbfe",
+                                borderRadius: "4px",
+                                color: "#2563eb",
+                                fontSize: "0.76rem",
+                                padding: "1px 6px",
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                              title="Adresi düzenle"
+                            >
+                              Düzenle
+                            </button>
                             {isLastOrderAddr && (
                               <span
                                 style={{
@@ -894,6 +942,101 @@ export function CallerIdOverlay() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Adres Düzenleme Modalı */}
+        {editingAddress && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(15, 23, 42, 0.6)",
+              zIndex: 10005,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "1rem",
+            }}
+            onClick={() => setEditingAddress(null)}
+          >
+            <div
+              style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                padding: "1.25rem",
+                maxWidth: "440px",
+                width: "100%",
+                boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.4rem" }}>
+                Adresi Düzenle
+              </h3>
+              <p style={{ fontSize: "0.85rem", color: "#64748b", marginBottom: "0.75rem" }}>
+                Eski kayıttan gelen adresi güncelleyebilirsiniz. Başlık otomatik olarak &quot;Adres&quot; yapılacaktır.
+              </p>
+              <textarea
+                rows={3}
+                value={editAddressValue}
+                onChange={(e) => setEditAddressValue(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "0.6rem 0.75rem",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  fontSize: "0.95rem",
+                  outline: "none",
+                  marginBottom: "0.75rem",
+                  fontFamily: "inherit",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+                placeholder="Adres metni..."
+              />
+              {editAddressError && (
+                <div style={{ color: "#dc2626", fontSize: "0.82rem", marginBottom: "0.6rem" }}>
+                  {editAddressError}
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingAddress(null)}
+                  style={{
+                    padding: "0.45rem 0.9rem",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#f8fafc",
+                    color: "#475569",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  İptal
+                </button>
+                <button
+                  type="button"
+                  disabled={savingAddress}
+                  onClick={() => void handleSaveEditedAddress()}
+                  style={{
+                    padding: "0.45rem 1rem",
+                    borderRadius: "6px",
+                    border: "none",
+                    background: "#059669",
+                    color: "#ffffff",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {savingAddress ? "Kaydediliyor…" : "Kaydet"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

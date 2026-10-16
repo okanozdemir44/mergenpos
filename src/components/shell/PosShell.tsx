@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStaffSession } from "@/hooks/useStaffSession";
 import { useRestaurantFeatures } from "@/hooks/useRestaurantFeatures";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PrinterSettingsModal from "../settings/PrinterSettingsModal";
 import CallerIdSettingsModal from "../settings/CallerIdSettingsModal";
 import { CallerIdOverlay } from "../callerid/CallerIdOverlay";
@@ -29,6 +29,25 @@ function PosShellInner({ children }: { children: React.ReactNode }) {
   const { callerIdEnabled } = useRestaurantFeatures();
   const [showPrinterSettings, setShowPrinterSettings] = useState(false);
   const [showCallerIdSettings, setShowCallerIdSettings] = useState(false);
+  const [printerWarning, setPrinterWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<{ printerName: string; message: string }>;
+      if (customEvent.detail?.message) {
+        setPrinterWarning(customEvent.detail.message);
+      }
+    };
+    window.addEventListener("mergen-printer-warning", handler);
+    return () => window.removeEventListener("mergen-printer-warning", handler);
+  }, []);
+
+  useEffect(() => {
+    if (!printerWarning) return;
+    const t = setTimeout(() => setPrinterWarning(null), 6000);
+    return () => clearTimeout(t);
+  }, [printerWarning]);
+
   const hideShell = pathname.startsWith("/login");
 
   if (hideShell) {
@@ -110,6 +129,54 @@ function PosShellInner({ children }: { children: React.ReactNode }) {
       <CallerIdOverlay />
       {showCallerIdSettings && <CallerIdSettingsModal onClose={() => setShowCallerIdSettings(false)} />}
       {showPrinterSettings && <PrinterSettingsModal onClose={() => setShowPrinterSettings(false)} />}
+
+      {/* Yazdırma Hata / Uyarı Bildirimi */}
+      {printerWarning && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "24px",
+            right: "24px",
+            maxWidth: "420px",
+            background: "#fff",
+            border: "1px solid #fecaca",
+            borderLeft: "5px solid #dc2626",
+            borderRadius: "10px",
+            padding: "0.85rem 1rem",
+            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.15)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "0.75rem",
+          }}
+        >
+          <span style={{ fontSize: "1.2rem", lineHeight: 1 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#991b1b", marginBottom: "0.2rem" }}>
+              Yazdırma Uyarısı
+            </div>
+            <div style={{ fontSize: "0.82rem", color: "#374151", lineHeight: 1.35 }}>
+              {printerWarning}
+            </div>
+            <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "0.25rem" }}>
+              Siparişiniz sisteme kaydedildi. Fişi Paket Servis ekranından dilediğiniz zaman tekrar yazdırabilirsiniz.
+            </div>
+          </div>
+          <button
+            onClick={() => setPrinterWarning(null)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#9ca3af",
+              fontSize: "1rem",
+              cursor: "pointer",
+              padding: "0 4px",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

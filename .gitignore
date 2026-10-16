@@ -47,3 +47,8 @@ supabase/.branches
 .DS_Store
 Thumbs.db
 *.pem
+
+# customer imports
+import/
+import/out/
+

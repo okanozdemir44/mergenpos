@@ -21,6 +21,7 @@ import type {
   CallerIdLogEntry,
   CallerIdLastOrder,
 } from "@/types/customer";
+import type { DesktopSerialStatus } from "@/types/desktop";
 
 type CallerIdContextType = {
   // Lisans ve Ayar State
@@ -34,6 +35,7 @@ type CallerIdContextType = {
   setBaudRate: (val: number) => void;
   modemMode: boolean;
   setModemMode: (val: boolean) => void;
+  serialStatus: DesktopSerialStatus | null;
   reconnectSerial: () => Promise<void>;
 
   // Çağrı & Panel State
@@ -62,6 +64,7 @@ type CallerIdContextType = {
   }) => Promise<CustomerPhone | null>;
   startOrderForActiveCall: (selectedAddressId?: string) => void;
   startRepeatOrder: (repeatOrderId: string, selectedAddressId?: string) => void;
+  updateActiveCallAddress: (addressId: string, newAddress: string, newTitle?: string) => Promise<void>;
 };
 
 const CallerIdContext = createContext<CallerIdContextType | null>(null);
@@ -102,6 +105,7 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
   const [comPort, setComPortState] = useState<string>("COM1");
   const [baudRate, setBaudRateState] = useState<number>(9600);
   const [modemMode, setModemModeState] = useState<boolean>(false);
+  const [serialStatus, setSerialStatus] = useState<DesktopSerialStatus | null>(null);
 
   // Active call
   const [activeCall, setActiveCall] = useState<CallerIdActiveCall | null>(null);
@@ -431,6 +435,7 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
 
     // 2. Durum aboneliği
     const unsubStatus = desktop.serial.onStatus((status) => {
+      setSerialStatus(status);
       if (status.error) {
         addLog(`[PORT HATA] ${status.error}`, "error");
       } else if (status.isOpen) {
@@ -439,6 +444,9 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
         addLog(`[PORT KAPANDI] Seri port bağlantısı kapalı`, "warn");
       }
     });
+
+    // İlk açılışta mevcut durumu da sorgula
+    desktop.serial.status().then((st) => setSerialStatus(st)).catch(() => {});
 
     // 3. Çağrı yakalama aboneliği (kabuk tarafından ayıklanan numara)
     const unsubCall = desktop.onIncomingCall((phone) => {
@@ -732,6 +740,42 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     [activeCall, router]
   );
 
+  // Aktif çağrının adresini güncelle (başlığı Adres yapıp Supabase'e yazar)
+  const updateActiveCallAddress = useCallback(
+    async (addressId: string, newAddress: string, newTitle: string = "Adres") => {
+      if (!staff?.restaurant_id) return;
+      const supabase = createBrowserClient();
+      const trimmed = newAddress.trim();
+      const title = newTitle.trim() || "Adres";
+
+      const { error } = await supabase
+        .from("customer_addresses")
+        .update({
+          address: trimmed,
+          title,
+        })
+        .eq("id", addressId)
+        .eq("restaurant_id", staff.restaurant_id);
+
+      if (error) {
+        throw new Error(error.message || "Adres güncellenemedi");
+      }
+
+      setActiveCall((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          addresses: prev.addresses.map((a) =>
+            a.id === addressId ? { ...a, address: trimmed, title } : a
+          ),
+        };
+      });
+
+      addLog(`Adres güncellendi: ${title} - ${trimmed.slice(0, 30)}...`, "info");
+    },
+    [staff?.restaurant_id, addLog]
+  );
+
   const value: CallerIdContextType = {
     hasLicense,
     licenseLoading,
@@ -743,6 +787,7 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     setBaudRate,
     modemMode,
     setModemMode,
+    serialStatus,
     reconnectSerial,
     activeCall,
     dismissCall,
@@ -754,6 +799,7 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     linkPhoneToCustomer,
     startOrderForActiveCall,
     startRepeatOrder,
+    updateActiveCallAddress,
   };
 
   return (

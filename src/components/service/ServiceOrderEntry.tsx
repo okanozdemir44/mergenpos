@@ -375,6 +375,45 @@ export function ServiceOrderEntry() {
           // Müşteri otomatik kaydı başarısız olursa sipariş kaydını aksatmayız
         }
       }
+    } else if (orderType === "delivery" && finalCustomerId) {
+      // Mevcut müşteri: Adres düzenlendiyse başlığı "Adres"e çevirip müşteriye geri yaz
+      if (deliveryAddress.trim()) {
+        try {
+          if (finalAddressId) {
+            await supabase
+              .from("customer_addresses")
+              .update({
+                address: deliveryAddress.trim(),
+                title: "Adres",
+              })
+              .eq("id", finalAddressId)
+              .eq("restaurant_id", staff.restaurant_id);
+          } else {
+            const { data: newAddr } = await supabase
+              .from("customer_addresses")
+              .insert({
+                restaurant_id: staff.restaurant_id,
+                customer_id: finalCustomerId,
+                title: "Adres",
+                address: deliveryAddress.trim(),
+              })
+              .select("id")
+              .maybeSingle();
+            if (newAddr) finalAddressId = newAddr.id;
+          }
+
+          // Eğer isim girildiyse customers tablosundaki ismi de güncelle
+          if (customerName.trim()) {
+            await supabase
+              .from("customers")
+              .update({ name: customerName.trim() })
+              .eq("id", finalCustomerId)
+              .eq("restaurant_id", staff.restaurant_id);
+          }
+        } catch (updateCustErr) {
+          console.warn("Mevcut müşteri/adres güncellenirken hata:", updateCustErr);
+        }
+      }
     }
 
     // orders tablosuna kayıt payload'ı

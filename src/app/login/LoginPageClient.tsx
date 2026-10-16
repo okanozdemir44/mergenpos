@@ -25,10 +25,10 @@ export default function LoginPageClient() {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(data.error || "Giriş başarısız");
+        setError(data.error || "Giriş başarısız. Lütfen bilgilerinizi kontrol edin.");
         setLoading(false);
         return;
       }
@@ -36,7 +36,7 @@ export default function LoginPageClient() {
       // Success -> Redirect (tam sayfa yenilemesi ile oturumu taze yükle)
       window.location.href = next;
     } catch (err: any) {
-      setError("Bağlantı hatası");
+      setError(err?.message ? `Bağlantı hatası (${err.message})` : "Bağlantı hatası. Lütfen sayfayı yenileyin.");
       setLoading(false);
     }
   }
