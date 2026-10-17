@@ -14,6 +14,7 @@ import { printHtml as printHtmlQz } from "./qz";
 export interface UnifiedPrintOptions {
   paperWidthMm?: number;
   copies?: number;
+  savePdfForDebug?: boolean;
 }
 
 export interface PrintReceiptParams {
@@ -21,6 +22,7 @@ export interface PrintReceiptParams {
   html: string;
   copies?: number;
   paperWidthMm?: number;
+  savePdfForDebug?: boolean;
 }
 
 export function isDesktopPrinterAvailable(): boolean {
@@ -29,12 +31,26 @@ export function isDesktopPrinterAvailable(): boolean {
 
 export function getDesktopPrinterSetting(): boolean {
   if (typeof window === "undefined") return false;
-  return localStorage.getItem("mergen_use_desktop_printer") === "true";
+  const val = localStorage.getItem("mergen_use_desktop_printer");
+  if (val === null) {
+    return isDesktopPrinterAvailable();
+  }
+  return val === "true";
 }
 
 export function setDesktopPrinterSetting(enabled: boolean): void {
   if (typeof window === "undefined") return;
   localStorage.setItem("mergen_use_desktop_printer", String(enabled));
+}
+
+export function isSavePdfDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem("mergen_save_print_pdf_debug") === "true";
+}
+
+export function setSavePdfDebugEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("mergen_save_print_pdf_debug", String(enabled));
 }
 
 export function getPrinterPaperWidth(): number {
@@ -57,13 +73,15 @@ export function setAutoPrintEnabled(enabled: boolean): void {
   localStorage.setItem("mergen_auto_print_receipts", String(enabled));
 }
 
-function notifyPrinterWarning(printerName: string, rawError?: string) {
+export function notifyPrinterWarning(printerName: string, rawError?: string) {
   if (typeof window === "undefined") return;
 
   const lower = (rawError || "").toLowerCase();
   let message = `"${printerName}" yazıcısı yanıt vermedi.`;
 
-  if (lower.includes("bulunamadı") || lower.includes("not found")) {
+  if (rawError === "Fişte yazdırılacak kalem yok" || lower.includes("kalem yok")) {
+    message = "Fişte yazdırılacak kalem yok";
+  } else if (lower.includes("bulunamadı") || lower.includes("not found")) {
     message = `"${printerName}" yazıcısı bulunamadı. Lütfen Windows yazıcı ayarlarını kontrol edin.`;
   } else if (lower.includes("zaman aşımı") || lower.includes("timeout")) {
     message = `"${printerName}" yazıcısı zaman aşımına uğradı. Yazıcı çevrimdışı veya kağıdı bitmiş olabilir.`;
@@ -90,17 +108,30 @@ export async function printReceiptHtml(
   let htmlContent: string;
   let copies = 1;
   let paperWidthMm = 80;
+  let savePdfForDebug = isSavePdfDebugEnabled();
 
   if (typeof printerOrParams === "object") {
     printerName = printerOrParams.printerName;
     htmlContent = printerOrParams.html;
     copies = printerOrParams.copies || 1;
     paperWidthMm = printerOrParams.paperWidthMm || getPrinterPaperWidth();
+    if (typeof printerOrParams.savePdfForDebug === "boolean") {
+      savePdfForDebug = printerOrParams.savePdfForDebug;
+    }
   } else {
     printerName = printerOrParams;
     htmlContent = maybeHtml || "";
     copies = options?.copies || 1;
     paperWidthMm = options?.paperWidthMm || getPrinterPaperWidth();
+    if (typeof options?.savePdfForDebug === "boolean") {
+      savePdfForDebug = options.savePdfForDebug;
+    }
+  }
+
+  const trimmedHtml = (htmlContent || "").trim();
+  if (!trimmedHtml) {
+    notifyPrinterWarning(printerName || "Yazıcı", "Fişte yazdırılacak kalem yok");
+    return;
   }
 
   const isDesktop = isDesktopPrinterAvailable();
@@ -110,10 +141,11 @@ export async function printReceiptHtml(
   if (isDesktop && useDesktop && window.desktopAPI?.print) {
     try {
       const res = await window.desktopAPI.print.printHtml({
-        html: htmlContent,
+        html: trimmedHtml,
         printerName,
         copies,
         paperWidthMm,
+        savePdfForDebug,
       });
 
       if (res.success) {
@@ -129,7 +161,7 @@ export async function printReceiptHtml(
 
   // 2. QZ Tray ile yazdır (tarayıcı veya masaüstü yedeği)
   try {
-    await printHtmlQz(printerName, htmlContent);
+    await printHtmlQz(printerName, trimmedHtml);
   } catch (qzErr: any) {
     notifyPrinterWarning(printerName, qzErr?.message || String(qzErr));
     throw qzErr;

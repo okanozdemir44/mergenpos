@@ -21,7 +21,11 @@ import type {
   CallerIdLogEntry,
   CallerIdLastOrder,
 } from "@/types/customer";
-import type { DesktopSerialStatus } from "@/types/desktop";
+import type {
+  DesktopSerialStatus,
+  DesktopSignalOption,
+  DesktopSerialSignals,
+} from "@/types/desktop";
 
 type CallerIdContextType = {
   // Lisans ve Ayar State
@@ -35,6 +39,11 @@ type CallerIdContextType = {
   setBaudRate: (val: number) => void;
   modemMode: boolean;
   setModemMode: (val: boolean) => void;
+  dtr: DesktopSignalOption;
+  setDtr: (val: DesktopSignalOption) => void;
+  rts: DesktopSignalOption;
+  setRts: (val: DesktopSignalOption) => void;
+  signals: DesktopSerialSignals | null;
   serialStatus: DesktopSerialStatus | null;
   reconnectSerial: () => Promise<void>;
 
@@ -105,6 +114,9 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
   const [comPort, setComPortState] = useState<string>("COM1");
   const [baudRate, setBaudRateState] = useState<number>(9600);
   const [modemMode, setModemModeState] = useState<boolean>(false);
+  const [dtr, setDtrState] = useState<DesktopSignalOption>("default");
+  const [rts, setRtsState] = useState<DesktopSignalOption>("default");
+  const [signals, setSignals] = useState<DesktopSerialSignals | null>(null);
   const [serialStatus, setSerialStatus] = useState<DesktopSerialStatus | null>(null);
 
   // Active call
@@ -128,6 +140,10 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
       if (savedBaud) setBaudRateState(Number(savedBaud) || 9600);
       const savedModem = localStorage.getItem("mergen_callerid_modem_mode");
       if (savedModem !== null) setModemModeState(savedModem === "true");
+      const savedDtr = localStorage.getItem("mergen_callerid_dtr") as DesktopSignalOption | null;
+      if (savedDtr && ["default", "on", "off"].includes(savedDtr)) setDtrState(savedDtr);
+      const savedRts = localStorage.getItem("mergen_callerid_rts") as DesktopSignalOption | null;
+      if (savedRts && ["default", "on", "off"].includes(savedRts)) setRtsState(savedRts);
     } catch {
       // LocalStorage erişim hatası olursa yut
     }
@@ -184,15 +200,45 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
-  const addLog = useCallback((text: string, type: CallerIdLogEntry["type"] = "info") => {
-    const entry: CallerIdLogEntry = {
-      id: crypto.randomUUID(),
-      timestamp: new Date().toLocaleTimeString("tr-TR"),
-      text,
-      type,
-    };
-    setLogs((prev) => [entry, ...prev.slice(0, 199)]);
-  }, []);
+  const setDtr = useCallback((val: DesktopSignalOption) => {
+    setDtrState(val);
+    try {
+      localStorage.setItem("mergen_callerid_dtr", val);
+    } catch {}
+    if (typeof window !== "undefined" && window.desktopAPI?.serial?.setSignals) {
+      window.desktopAPI.serial.setSignals({ dtr: val, rts });
+    }
+  }, [rts]);
+
+  const setRts = useCallback((val: DesktopSignalOption) => {
+    setRtsState(val);
+    try {
+      localStorage.setItem("mergen_callerid_rts", val);
+    } catch {}
+    if (typeof window !== "undefined" && window.desktopAPI?.serial?.setSignals) {
+      window.desktopAPI.serial.setSignals({ dtr, rts: val });
+    }
+  }, [dtr]);
+
+  const addLog = useCallback(
+    (text: string, type: CallerIdLogEntry["type"] = "info", customTimestamp?: string) => {
+      const now = new Date();
+      const defaultTs =
+        now.toLocaleTimeString("tr-TR") +
+        "." +
+        String(now.getMilliseconds()).padStart(3, "0");
+
+      const entry: CallerIdLogEntry = {
+        id: crypto.randomUUID(),
+        timestamp: customTimestamp || defaultTs,
+        text,
+        type,
+      };
+      // Log 500 satırla sınırlı
+      setLogs((prev) => [entry, ...prev.slice(0, 499)]);
+    },
+    []
+  );
 
   const clearLogs = useCallback(() => {
     setLogs([]);
@@ -428,12 +474,22 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
 
     const desktop = window.desktopAPI;
 
-    // 1. Ham veri aboneliği (ayarlar modalı loglarına kaçış karakterleriyle yansır)
-    const unsubData = desktop.serial.onData(({ escaped }) => {
-      addLog(`[HAM] ${escaped}`, "info");
+    // 1. Ham chunk verisi aboneliği: Hiçbir tampon beklemeden ms zaman damgası, HEX ve ASCII ile log'a yazılır
+    const unsubRaw = desktop.serial.onRaw((raw) => {
+      addLog(`[RAW ${raw.len}B] HEX: ${raw.hex} | ASCII: ${raw.ascii}`, "raw", raw.timestamp);
     });
 
-    // 2. Durum aboneliği
+    // 2. Satır tamamlanınca çözülen satır verisi
+    const unsubData = desktop.serial.onData(({ escaped }) => {
+      addLog(`[SATIR] ${escaped}`, "info");
+    });
+
+    // 3. CTS, DSR, CD, RI sinyal pin aboneliği
+    const unsubSignals = desktop.serial.onSignals((sig) => {
+      setSignals(sig);
+    });
+
+    // 4. Durum aboneliği
     const unsubStatus = desktop.serial.onStatus((status) => {
       setSerialStatus(status);
       if (status.error) {
@@ -448,15 +504,15 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     // İlk açılışta mevcut durumu da sorgula
     desktop.serial.status().then((st) => setSerialStatus(st)).catch(() => {});
 
-    // 3. Çağrı yakalama aboneliği (kabuk tarafından ayıklanan numara)
+    // 5. Çağrı yakalama aboneliği (kabuk tarafından ayıklanan numara)
     const unsubCall = desktop.onIncomingCall((phone) => {
       addLog(`[ÇAĞRI AYIKLANDI] Tel: ${phone}`, "call");
       incomingCall(phone);
     });
 
-    // 4. Lisansa ve Toggle durumuna bağlı olarak portu aç/kapat (Lisans yoksa veya toggle kapalıysa port kesinlikle açılmaz)
+    // 6. Lisansa ve Toggle durumuna bağlı olarak portu aç/kapat (Lisans yoksa veya toggle kapalıysa port kesinlikle açılmaz)
     if (hasLicense && enabled && comPort) {
-      desktop.serial.open(comPort, baudRate, modemMode).then((res) => {
+      desktop.serial.open(comPort, baudRate, modemMode, { dtr, rts }).then((res) => {
         if (!res.success && res.error) {
           addLog(`[BAĞLANTI BAŞARISIZ] ${res.error}`, "error");
         }
@@ -466,20 +522,22 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     }
 
     return () => {
+      unsubRaw();
       unsubData();
+      unsubSignals();
       unsubStatus();
       unsubCall();
       desktop.serial.close().catch(() => {});
     };
-  }, [hasLicense, enabled, comPort, baudRate, modemMode, incomingCall, addLog]);
+  }, [hasLicense, enabled, comPort, baudRate, modemMode, dtr, rts, incomingCall, addLog]);
 
   const reconnectSerial = useCallback(async () => {
     if (typeof window === "undefined" || !window.desktopAPI?.serial) return;
     if (!comPort) return;
-    addLog(`[MANUEL YENİDEN BAĞLAN] Port: ${comPort}, Baud: ${baudRate}`, "info");
+    addLog(`[MANUEL YENİDEN BAĞLAN] Port: ${comPort}, Baud: ${baudRate}, DTR: ${dtr}, RTS: ${rts}`, "info");
     try {
       await window.desktopAPI.serial.close();
-      const res = await window.desktopAPI.serial.open(comPort, baudRate, modemMode);
+      const res = await window.desktopAPI.serial.open(comPort, baudRate, modemMode, { dtr, rts });
       if (!res.success && res.error) {
         addLog(`[BAĞLANTI BAŞARISIZ] ${res.error}`, "error");
       } else {
@@ -488,7 +546,7 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     } catch (err: any) {
       addLog(`[BAĞLANTI HATASI] ${err?.message || String(err)}`, "error");
     }
-  }, [comPort, baudRate, modemMode, addLog]);
+  }, [comPort, baudRate, modemMode, dtr, rts, addLog]);
 
   // Kayıtsız müşteriyi doğrudan kaydet
   const registerAndLinkCustomer = useCallback(
@@ -787,6 +845,11 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     setBaudRate,
     modemMode,
     setModemMode,
+    dtr,
+    setDtr,
+    rts,
+    setRts,
+    signals,
     serialStatus,
     reconnectSerial,
     activeCall,

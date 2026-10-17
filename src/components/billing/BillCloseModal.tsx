@@ -76,9 +76,8 @@ export function BillCloseModal({
   <div class="disclaimer">BİLGİ FİŞİDİR, MALİ DEĞERİ YOKTUR</div>
 </body></html>`;
 
-    const autoPrint = typeof window !== "undefined" && localStorage.getItem("mergen_auto_print_receipts") === "true";
     const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
-    if (autoPrint && kasaPrinter) {
+    if (kasaPrinter) {
       try {
         await printReceiptHtml(kasaPrinter, html);
         return;

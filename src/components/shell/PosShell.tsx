@@ -106,18 +106,22 @@ function PosShellInner({ children }: { children: React.ReactNode }) {
             <span>{staff?.role ?? "—"}</span>
           </div>
           <button 
+            type="button"
             onClick={() => setShowCallerIdSettings(true)} 
-            className="pos-side-link pos-side-link--ghost"
-            style={{ textAlign: "left", width: "100%", cursor: "pointer", border: "none", background: "none" }}
+            className="pos-side-action-btn"
+            title="Caller ID Ayarları"
           >
-            📞 Caller ID
+            <span className="pos-side-action-btn__icon">📞</span>
+            <span className="pos-side-action-btn__label">Caller ID</span>
           </button>
           <button 
+            type="button"
             onClick={() => setShowPrinterSettings(true)} 
-            className="pos-side-link pos-side-link--ghost"
-            style={{ textAlign: "left", width: "100%", cursor: "pointer", border: "none", background: "none" }}
+            className="pos-side-action-btn"
+            title="Yazıcı Ayarları"
           >
-            🖨️ Yazıcılar
+            <span className="pos-side-action-btn__icon">🖨️</span>
+            <span className="pos-side-action-btn__label">Yazıcılar</span>
           </button>
           <Link href="/login" className="pos-side-link pos-side-link--ghost">
             Çıkış

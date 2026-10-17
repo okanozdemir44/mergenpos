@@ -39,12 +39,12 @@ export function ThermalReceipt({
   customerName,
   customerPhone,
   deliveryAddress,
-  items,
-  total,
+  items = [],
+  total = 0,
   paymentMethod = "cash",
   paidAmount,
   changeAmount = 0,
-  orderNumber,
+  orderNumber = "",
   complimentText = "Afiyet Olsun.",
 }: ThermalReceiptProps) {
   const currentDate =
@@ -59,27 +59,29 @@ export function ThermalReceipt({
     });
 
   const paymentLabel = paymentMethod ? PAYMENT_METHOD_LABEL[paymentMethod as PaymentMethod] || paymentMethod : "Belirsiz";
-  const actualPaid = paidAmount ?? total;
+  const numTotal = Number(total) || 0;
+  const actualPaid = Number(paidAmount ?? numTotal) || 0;
+  const safeItems = Array.isArray(items) ? items : [];
 
   return (
     <div className="thermal-receipt" aria-hidden="true">
       {/* Şube Adı */}
       <div className="receipt-header">
-        <h1 className="receipt-branch">{branchName}</h1>
+        <h1 className="receipt-branch">{branchName || "MERGEN POS"}</h1>
       </div>
 
       {/* Meta Bilgiler */}
       <div className="receipt-meta">
         <div className="receipt-row">
           <span>{currentDate}</span>
-          <span>Adisyon No: {receiptNo}</span>
+          <span>Adisyon No: {receiptNo || "-"}</span>
         </div>
         <div className="receipt-row" style={{ marginTop: "2px" }}>
-          <strong className="receipt-cashier">{cashierName.toUpperCase()}</strong>
+          <strong className="receipt-cashier">{(cashierName || "KASİYER").toUpperCase()}</strong>
         </div>
         <div className="receipt-row" style={{ marginTop: "3px" }}>
           <span>
-            Sipariş Kanalı: <strong>{orderChannel}</strong>
+            Sipariş Kanalı: <strong>{orderChannel || "GEL AL"}</strong>
           </span>
         </div>
         {orderChannel === "PAKET" && (customerName || customerPhone || deliveryAddress) && (
@@ -87,20 +89,20 @@ export function ThermalReceipt({
             {customerName && (
               <div className="receipt-row">
                 <span>Müşteri:</span>
-                <strong>{customerName.toUpperCase()}</strong>
+                <strong>{String(customerName).toUpperCase()}</strong>
               </div>
             )}
             {customerPhone && (
               <div className="receipt-row" style={{ marginTop: "2px" }}>
                 <span>Telefon:</span>
-                <strong>{customerPhone}</strong>
+                <strong>{String(customerPhone)}</strong>
               </div>
             )}
             {deliveryAddress && (
               <div style={{ marginTop: "3px", textAlign: "left" }}>
                 <span>Adres:</span>
                 <div style={{ fontWeight: 700, fontSize: "11px", lineHeight: "1.3", marginTop: "1px" }}>
-                  {deliveryAddress}
+                  {String(deliveryAddress)}
                 </div>
               </div>
             )}
@@ -121,15 +123,15 @@ export function ThermalReceipt({
           </tr>
         </thead>
         <tbody>
-          {items.map((item, index) => {
-            const lineTotal = item.totalPrice ?? item.quantity * item.unitPrice;
+          {safeItems.map((item, index) => {
+            const lineTotal = item.totalPrice ?? (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0);
             return (
               <React.Fragment key={index}>
                 <tr>
                   <td style={{ textAlign: "left", verticalAlign: "top" }}>{item.quantity}</td>
                   <td style={{ textAlign: "left", verticalAlign: "top" }}>{item.unit ?? "Tam"}</td>
                   <td style={{ textAlign: "left", verticalAlign: "top", fontWeight: 700 }}>
-                    {item.name.toUpperCase()}
+                    {String(item.name || "").toUpperCase()}
                   </td>
                   <td style={{ textAlign: "right", verticalAlign: "top" }}>
                     {lineTotal.toFixed(2)}
@@ -140,7 +142,7 @@ export function ThermalReceipt({
                     <td></td>
                     <td></td>
                     <td colSpan={2} className="receipt-item-note">
-                      [ {item.note.toLowerCase()} ]
+                      [ {String(item.note).toLowerCase()} ]
                     </td>
                   </tr>
                 )}
@@ -156,7 +158,7 @@ export function ThermalReceipt({
       <div className="receipt-total-section">
         <div className="receipt-row receipt-grand-total">
           <span>TOPLAM</span>
-          <span>₺ {total.toFixed(2)}</span>
+          <span>₺ {numTotal.toFixed(2)}</span>
         </div>
         <div className="receipt-row receipt-sub-row" style={{ marginTop: "4px" }}>
           <span>Tahsil Edilen</span>
@@ -180,8 +182,8 @@ export function ThermalReceipt({
         <div className="receipt-row receipt-payment-row">
           <span style={{ width: "30%", textAlign: "left" }}>{paymentLabel}</span>
           <span style={{ width: "25%", textAlign: "right" }}>₺ {actualPaid.toFixed(2)}</span>
-          <span style={{ width: "22%", textAlign: "right" }}>₺ {changeAmount.toFixed(2)}</span>
-          <span style={{ width: "23%", textAlign: "right" }}>₺ {total.toFixed(2)}</span>
+          <span style={{ width: "22%", textAlign: "right" }}>₺ {Number(changeAmount || 0).toFixed(2)}</span>
+          <span style={{ width: "23%", textAlign: "right" }}>₺ {numTotal.toFixed(2)}</span>
         </div>
       </div>
 

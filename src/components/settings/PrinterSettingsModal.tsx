@@ -12,6 +12,8 @@ import {
   setPrinterPaperWidth,
   isAutoPrintEnabled,
   setAutoPrintEnabled,
+  isSavePdfDebugEnabled,
+  setSavePdfDebugEnabled,
 } from "../../lib/unified-printer";
 
 interface PrinterSettingsModalProps {
@@ -37,6 +39,7 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
   const [useDesktopPrint, setUseDesktopPrint] = useState(false);
   const [autoPrintEnabled, setAutoPrintEnabledState] = useState(false);
   const [paperWidth, setPaperWidth] = useState<number>(80);
+  const [savePdfDebug, setSavePdfDebug] = useState(false);
 
   const [testPrintingRole, setTestPrintingRole] = useState<"kasa" | "mutfak" | null>(null);
   const [testMessage, setTestMessage] = useState<string | null>(null);
@@ -52,6 +55,7 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
     setIsDesktop(desktopAvailable);
     setUseDesktopPrint(getDesktopPrinterSetting());
     setAutoPrintEnabledState(isAutoPrintEnabled());
+    setSavePdfDebug(isSavePdfDebugEnabled());
     
     // Varsayılan kağıt genişliği: 80mm
     const currentWidth = getPrinterPaperWidth();
@@ -94,6 +98,7 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
     setDesktopPrinterSetting(useDesktopPrint);
     setAutoPrintEnabled(autoPrintEnabled);
     setPrinterPaperWidth(paperWidth || 80);
+    setSavePdfDebugEnabled(savePdfDebug);
     onClose();
   }
 
@@ -188,6 +193,7 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
         html,
         copies: 1,
         paperWidthMm: paperWidth || 80,
+        savePdfForDebug: savePdfDebug,
       });
       setTestMessage(`✓ ${roleName} test fişi "${targetPrinter}" yazıcısına başarıyla gönderildi.`);
     } catch (err: any) {
@@ -270,6 +276,28 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
                 <option value={80}>80 mm (Standart POS Fişi - DKT-B823)</option>
                 <option value={58}>58 mm (Küçük Termal)</option>
               </select>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem", borderTop: "1px dashed #bbf7d0", paddingTop: "0.5rem" }}>
+              <div>
+                <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#166534" }}>
+                  Hata Ayıklama (PDF Kaydet)
+                </div>
+                <div style={{ fontSize: "0.74rem", color: "#15803d" }}>
+                  Yazdırılan HTML'in PDF'ini günlük klasörüne kaydet (userData/logs/print-debug)
+                </div>
+              </div>
+              <label style={{ display: "inline-flex", alignItems: "center", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={savePdfDebug}
+                  onChange={(e) => setSavePdfDebug(e.target.checked)}
+                  style={{ width: "16px", height: "16px", accentColor: "#16a34a" }}
+                />
+                <span style={{ marginLeft: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#166534" }}>
+                  {savePdfDebug ? "Açık" : "Kapalı"}
+                </span>
+              </label>
             </div>
           </div>
         )}

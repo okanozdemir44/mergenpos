@@ -60,7 +60,7 @@ export type CallerIdLogEntry = {
   id: string;
   timestamp: string;
   text: string;
-  type: "info" | "call" | "warn" | "error";
+  type: "info" | "call" | "warn" | "error" | "raw";
 };
 
 export type CustomerOrderStats = {

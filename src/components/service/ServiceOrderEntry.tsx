@@ -511,11 +511,10 @@ export function ServiceOrderEntry() {
       orderNumber: orderNum,
     };
 
-    const autoPrint = typeof window !== "undefined" && localStorage.getItem("mergen_auto_print_receipts") === "true";
     const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
     const mutfakPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_MUTFAK") : null;
 
-    if (autoPrint && (kasaPrinter || mutfakPrinter)) {
+    if (kasaPrinter || mutfakPrinter) {
       try {
         if (kasaPrinter) {
           const kasaHtml = generateCashierReceiptHtml(receipt);
@@ -528,20 +527,30 @@ export function ServiceOrderEntry() {
         router.push(`/service?tab=${orderType}`);
       } catch (printErr) {
         console.error("Yazıcı hatası:", printErr);
-        // Fallback: browser print
+        // Fallback: browser print (yazdırma penceresi kapanana kadar sayfada kal)
         setReceiptData(receipt);
+        const onAfterPrint = () => {
+          window.removeEventListener("afterprint", onAfterPrint);
+          router.push(`/service?tab=${orderType}`);
+        };
+        window.addEventListener("afterprint", onAfterPrint);
         setTimeout(() => {
           window.print();
-          router.push(`/service?tab=${orderType}`);
-        }, 150);
+          setTimeout(onAfterPrint, 3000);
+        }, 200);
       }
     } else {
-      // Eski varsayılan davranış: ThermalReceipt DOM'a yerleştikten sonra window.print()
+      // Yazıcı seçilmemişse tarayıcı yazdırmasına düş (unmount olmadan önce yazdır)
       setReceiptData(receipt);
+      const onAfterPrint = () => {
+        window.removeEventListener("afterprint", onAfterPrint);
+        router.push(`/service?tab=${orderType}`);
+      };
+      window.addEventListener("afterprint", onAfterPrint);
       setTimeout(() => {
         window.print();
-        router.push(`/service?tab=${orderType}`);
-      }, 150);
+        setTimeout(onAfterPrint, 3000);
+      }, 200);
     }
   }
 

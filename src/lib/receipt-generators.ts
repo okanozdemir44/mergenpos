@@ -59,12 +59,12 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
     .map(
       (item) => `
     <tr>
-      <td class="col-qty">${item.quantity} ${item.unit}</td>
+      <td class="col-qty">${item.quantity} ${item.unit || "Tam"}</td>
       <td class="col-name">
         ${item.name}
         ${item.note ? `<span class="receipt-item-note">- ${item.note}</span>` : ""}
       </td>
-      <td class="col-price">*${formatTRY(item.totalPrice || 0)}</td>
+      <td class="col-price">*${formatTRY(item.totalPrice ?? (item.unitPrice ? item.quantity * item.unitPrice : 0))}</td>
     </tr>
   `
     )
@@ -72,7 +72,7 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
 
   return `
     <html>
-      <head><style>${css}</style></head>
+      <head><meta charset="utf-8"/><style>${css}</style></head>
       <body>
         <div class="receipt-container">
           <div class="receipt-header">
@@ -127,11 +127,11 @@ export function generateCashierReceiptHtml(data: ThermalReceiptProps): string {
             </div>
             <div class="receipt-row">
               <span>Tahsil Edilen</span>
-              <span>${formatTRY(data.paidAmount || 0)}</span>
+              <span>${formatTRY(data.paidAmount ?? data.total ?? 0)}</span>
             </div>
             <div class="receipt-row" style="margin-top: 2px;">
               <span>Kalan</span>
-              <span>${formatTRY(data.changeAmount || 0)}</span>
+              <span>${formatTRY(data.changeAmount ?? 0)}</span>
             </div>
           </div>
           

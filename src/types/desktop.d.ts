@@ -13,6 +13,36 @@ export interface DesktopSerialStatus {
   reconnecting?: boolean;
 }
 
+export type DesktopSignalOption = "default" | "on" | "off";
+
+export interface DesktopSignalSettings {
+  dtr?: DesktopSignalOption;
+  rts?: DesktopSignalOption;
+}
+
+export interface DesktopSerialSignals {
+  cts: boolean;
+  dsr: boolean;
+  cd: boolean;
+  ri?: boolean | null;
+}
+
+export interface DesktopSerialRawEvent {
+  timestamp: string;
+  hex: string;
+  ascii: string;
+  len: number;
+}
+
+export interface DesktopBaudScanItem {
+  baudRate: number;
+  status: "pending" | "scanning" | "completed" | "failed";
+  byteCount: number;
+  printableCount: number;
+  printableRatio: number;
+  secondsLeft: number;
+}
+
 export interface DesktopSerialDataEvent {
   raw: string;
   escaped: string;
@@ -31,6 +61,7 @@ export interface DesktopPrintOptions {
   printerName: string;
   copies?: number;
   paperWidthMm?: number;
+  savePdfForDebug?: boolean;
 }
 
 export interface DesktopAPI {
@@ -41,11 +72,22 @@ export interface DesktopAPI {
   onIncomingCall: (callback: (phone: string) => void) => () => void;
   serial: {
     listPorts: () => Promise<DesktopSerialPortInfo[]>;
-    open: (port: string, baudRate: number, enableModemMode?: boolean) => Promise<{ success: boolean; error?: string }>;
+    open: (
+      port: string,
+      baudRate: number,
+      enableModemMode?: boolean,
+      signals?: DesktopSignalSettings
+    ) => Promise<{ success: boolean; error?: string }>;
     close: () => Promise<{ success: boolean; error?: string }>;
     status: () => Promise<DesktopSerialStatus>;
+    setSignals: (signals: DesktopSignalSettings) => Promise<{ success: boolean; error?: string }>;
+    onSignals: (callback: (signals: DesktopSerialSignals | null) => void) => () => void;
     onData: (callback: (data: DesktopSerialDataEvent) => void) => () => void;
+    onRaw: (callback: (raw: DesktopSerialRawEvent) => void) => () => void;
     onStatus: (callback: (status: DesktopSerialStatus) => void) => () => void;
+    startBaudScan: (port: string, signals?: DesktopSignalSettings) => Promise<{ success: boolean; error?: string }>;
+    stopBaudScan: () => Promise<{ success: boolean }>;
+    onBaudScanProgress: (callback: (item: DesktopBaudScanItem) => void) => () => void;
     triggerMock: (sampleType?: "a" | "b" | "c" | "d" | "e") => Promise<void>;
   };
   print: {

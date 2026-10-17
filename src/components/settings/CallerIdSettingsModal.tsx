@@ -2,11 +2,17 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useCallerId } from "@/context/CallerIdContext";
-import type { DesktopSerialPortInfo } from "@/types/desktop";
+import type {
+  DesktopSerialPortInfo,
+  DesktopSignalOption,
+  DesktopBaudScanItem,
+} from "@/types/desktop";
 
 interface CallerIdSettingsModalProps {
   onClose: () => void;
 }
+
+const ALL_BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 
 export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModalProps) {
   const {
@@ -20,18 +26,28 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
     setBaudRate,
     modemMode,
     setModemMode,
+    dtr,
+    setDtr,
+    rts,
+    setRts,
+    signals,
     serialStatus,
     reconnectSerial,
     incomingCall,
     logs,
     clearLogs,
-    addLog,
   } = useCallerId();
 
   const isDesktop = typeof window !== "undefined" && Boolean(window.desktopAPI?.serial);
   const [ports, setPorts] = useState<DesktopSerialPortInfo[]>([]);
   const [refreshingPorts, setRefreshingPorts] = useState(false);
   const [desktopConfig, setDesktopConfig] = useState<{ mockSerial?: boolean } | null>(null);
+
+  // Baud Tarama State
+  const [baudScanActive, setBaudScanActive] = useState(false);
+  const [baudScanItems, setBaudScanItems] = useState<Record<number, DesktopBaudScanItem>>({});
+  const [baudScanError, setBaudScanError] = useState<string | null>(null);
+  const [showBaudScanTable, setShowBaudScanTable] = useState(false);
 
   useEffect(() => {
     if (isDesktop && window.desktopAPI?.getConfig) {
@@ -45,7 +61,6 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
       try {
         const list = await window.desktopAPI.serial.listPorts();
         setPorts(list);
-        // Eğer port seçilmemişse ve liste doluysa ilk portu seç
         if (list.length > 0 && !comPort) {
           setComPort(list[0].path);
         }
@@ -62,6 +77,61 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
       refreshPorts();
     }
   }, [isDesktop, refreshPorts]);
+
+  // Baud Tarama İlerleme Dinleyicisi
+  useEffect(() => {
+    if (!isDesktop || !window.desktopAPI?.serial?.onBaudScanProgress) return;
+    const unsub = window.desktopAPI.serial.onBaudScanProgress((item) => {
+      setBaudScanItems((prev) => ({
+        ...prev,
+        [item.baudRate]: item,
+      }));
+    });
+    return () => {
+      unsub();
+    };
+  }, [isDesktop]);
+
+  const handleStartBaudScan = async () => {
+    if (!isDesktop || !window.desktopAPI?.serial?.startBaudScan) return;
+    if (!comPort) {
+      setBaudScanError("Lütfen önce taranacak COM portu seçin.");
+      return;
+    }
+    setBaudScanActive(true);
+    setBaudScanError(null);
+    setShowBaudScanTable(true);
+
+    const initial: Record<number, DesktopBaudScanItem> = {};
+    ALL_BAUD_RATES.forEach((rate) => {
+      initial[rate] = {
+        baudRate: rate,
+        status: "pending",
+        byteCount: 0,
+        printableCount: 0,
+        printableRatio: 0,
+        secondsLeft: 8,
+      };
+    });
+    setBaudScanItems(initial);
+
+    try {
+      const res = await window.desktopAPI.serial.startBaudScan(comPort, { dtr, rts });
+      if (!res.success && res.error) {
+        setBaudScanError(res.error);
+      }
+    } catch (err: any) {
+      setBaudScanError(err?.message || "Tarama sırasında bir hata oluştu.");
+    } finally {
+      setBaudScanActive(false);
+    }
+  };
+
+  const handleStopBaudScan = async () => {
+    if (!isDesktop || !window.desktopAPI?.serial?.stopBaudScan) return;
+    await window.desktopAPI.serial.stopBaudScan();
+    setBaudScanActive(false);
+  };
 
   // Bağlantı durumunu hesapla (bağlı / bağlı değil / meşgul)
   const connectionState = React.useMemo(() => {
@@ -121,8 +191,10 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
       <div
         className="modal-content"
         style={{
-          maxWidth: "560px",
+          maxWidth: "640px",
           width: "100%",
+          maxHeight: "92vh",
+          overflowY: "auto",
           padding: "1.5rem",
           borderRadius: "12px",
           background: "#fff",
@@ -131,7 +203,7 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
           <h2 style={{ fontSize: "1.25rem", fontWeight: "bold", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span>📞</span> Caller ID (Arayan Numara) Ayarları
+            <span>📞</span> Caller ID (Arayan Numara) & COM Port Ayarları
           </h2>
           <button
             onClick={onClose}
@@ -150,9 +222,9 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
         {/* Lisans & Aç/Kapat Toggle */}
         <div
           style={{
-            padding: "1rem",
+            padding: "0.85rem 1rem",
             borderRadius: "8px",
-            marginBottom: "1.25rem",
+            marginBottom: "1rem",
             background: hasLicense ? "#f0fdf4" : "#f1f5f9",
             border: `1px solid ${hasLicense ? "#bbf7d0" : "#e2e8f0"}`,
             display: "flex",
@@ -165,12 +237,12 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
               Caller ID Hizmeti
             </div>
             {!hasLicense && !licenseLoading && (
-              <div style={{ fontSize: "0.85rem", color: "#dc2626", marginTop: "2px" }}>
+              <div style={{ fontSize: "0.82rem", color: "#dc2626", marginTop: "2px" }}>
                 🔒 Bu özellik için lisans gerekli
               </div>
             )}
             {hasLicense && (
-              <div style={{ fontSize: "0.85rem", color: "#15803d", marginTop: "2px" }}>
+              <div style={{ fontSize: "0.82rem", color: "#15803d", marginTop: "2px" }}>
                 ✓ Lisans Doğrulandı (Aktif)
               </div>
             )}
@@ -242,11 +314,11 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
         </div>
 
         {/* Seri Port & Baud Rate Ayarları */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "0.75rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "1rem", marginBottom: "0.75rem" }}>
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
               <label style={{ fontWeight: 600, fontSize: "0.85rem", color: "#334155" }}>
-                COM Port {isDesktop && <span style={{ color: "#0284c7", fontSize: "0.75rem" }}>(Masaüstü Otomatik)</span>}
+                COM Port {isDesktop && <span style={{ color: "#0284c7", fontSize: "0.75rem" }}>(Otomatik)</span>}
               </label>
               {isDesktop && (
                 <button
@@ -330,37 +402,16 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
                 background: "#fff",
               }}
             >
-              <option value={9600}>9600 (Varsayılan)</option>
-              <option value={19200}>19200</option>
-              <option value={38400}>38400</option>
-              <option value={57600}>57600</option>
-              <option value={115200}>115200</option>
+              {ALL_BAUD_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate} {rate === 9600 ? "(Varsayılan)" : ""}
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
-        {/* Boş COM Port Teşhis / Yönlendirme Mesajı */}
-        {isDesktop && ports.length === 0 && (
-          <div
-            style={{
-              padding: "0.75rem 0.9rem",
-              background: "#fffbeb",
-              border: "1px solid #fde68a",
-              borderRadius: "8px",
-              marginBottom: "1.1rem",
-              fontSize: "0.82rem",
-              color: "#92400e",
-              lineHeight: "1.45",
-            }}
-          >
-            <strong style={{ display: "block", marginBottom: "0.25rem", color: "#b45309" }}>
-              ⚠️ COM Port Teşhisi:
-            </strong>
-            COM port bulunamadı. Aygıt Yöneticisi'nde Bağlantı Noktaları (COM ve LPT) altına bakın, USB cihaz takılı mı, Vega kapalı mı kontrol edin. Telefonun kendisi bilgisayara veri göndermiyor olabilir; bu durumda hat ile telefon arasına USB Caller ID cihazı gerekir.
-          </div>
-        )}
-
-        {/* Seçili Port Ayrıntıları (Üretici, VID, PID) */}
+        {/* Seçili Port Ayrıntıları */}
         {isDesktop && selectedPortInfo && (
           <div
             style={{
@@ -371,7 +422,7 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
               background: "#f8fafc",
               border: "1px solid #e2e8f0",
               borderRadius: "6px",
-              marginBottom: "1rem",
+              marginBottom: "0.75rem",
               fontSize: "0.78rem",
               color: "#475569",
             }}
@@ -383,15 +434,146 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
           </div>
         )}
 
-        {/* Masaüstü Mod Seçenekleri: Modem Modu & Yeniden Bağlan */}
+        {/* Sinyal Kontrolleri: DTR ve RTS Seçimi + Pin İzleme */}
+        {isDesktop && (
+          <div
+            style={{
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "8px",
+              padding: "0.75rem 0.9rem",
+              marginBottom: "0.85rem",
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "#1e293b", marginBottom: "0.5rem" }}>
+              ⚡ Donanım Sinyal Seviyeleri (DTR / RTS) & Pin Durumları
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "0.6rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#475569", marginBottom: "0.25rem" }}>
+                  DTR (Data Terminal Ready)
+                </label>
+                <select
+                  value={dtr}
+                  onChange={(e) => setDtr(e.target.value as DesktopSignalOption)}
+                  style={{
+                    width: "100%",
+                    padding: "0.4rem 0.6rem",
+                    borderRadius: "5px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "0.82rem",
+                    background: "#fff",
+                  }}
+                >
+                  <option value="default">Varsayılan (Sürücü Varsayılanı)</option>
+                  <option value="on">Açık (High / +12V)</option>
+                  <option value="off">Kapalı (Low / -12V)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#475569", marginBottom: "0.25rem" }}>
+                  RTS (Request To Send)
+                </label>
+                <select
+                  value={rts}
+                  onChange={(e) => setRts(e.target.value as DesktopSignalOption)}
+                  style={{
+                    width: "100%",
+                    padding: "0.4rem 0.6rem",
+                    borderRadius: "5px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "0.82rem",
+                    background: "#fff",
+                  }}
+                >
+                  <option value="default">Varsayılan (Sürücü Varsayılanı)</option>
+                  <option value="on">Açık (High / +12V)</option>
+                  <option value="off">Kapalı (Low / -12V)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 500ms Pin Durum Göstergeleri */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "1.25rem",
+                flexWrap: "wrap",
+                padding: "0.4rem 0.6rem",
+                background: "#fff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "6px",
+                fontSize: "0.78rem",
+              }}
+            >
+              <span style={{ fontWeight: 600, color: "#334155" }}>Pin Durumu (500 ms):</span>
+
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: signals?.cts ? "#16a34a" : "#94a3b8",
+                  }}
+                />
+                CTS: <strong>{signals ? (signals.cts ? "AÇIK" : "KAPALI") : "—"}</strong>
+              </span>
+
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: signals?.dsr ? "#16a34a" : "#94a3b8",
+                  }}
+                />
+                DSR: <strong>{signals ? (signals.dsr ? "AÇIK" : "KAPALI") : "—"}</strong>
+              </span>
+
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: signals?.cd ? "#16a34a" : "#94a3b8",
+                  }}
+                />
+                CD: <strong>{signals ? (signals.cd ? "AÇIK" : "KAPALI") : "—"}</strong>
+              </span>
+
+              {signals?.ri !== null && signals?.ri !== undefined && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                  <span
+                    style={{
+                      width: 9,
+                      height: 9,
+                      borderRadius: "50%",
+                      background: signals.ri ? "#16a34a" : "#94a3b8",
+                    }}
+                  />
+                  RI: <strong>{signals.ri ? "AÇIK" : "KAPALI"}</strong>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Masaüstü Mod Seçenekleri: Modem Modu & Baud Tarama Butonu & Yeniden Bağlan */}
         {isDesktop && (
           <div
             style={{
               display: "flex",
+              flexWrap: "wrap",
               alignItems: "center",
               justifyContent: "space-between",
-              gap: "0.75rem",
-              marginBottom: "1.25rem",
+              gap: "0.6rem",
+              marginBottom: "0.85rem",
               padding: "0.6rem 0.8rem",
               background: "#f8fafc",
               border: "1px solid #e2e8f0",
@@ -407,7 +589,7 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
                 color: "#334155",
                 fontWeight: 500,
               }}
-              title="Açıkken AT+VCID=1 / AT+CLIP=1 komutları gönderilir. Düz USB Caller ID kutuları için kapalı tutunuz."
+              title="Açıkken AT+VCID=1 komutu gönderilir. Düz DB9 / USB Caller ID kutuları için kapalı tutunuz."
             >
               <input
                 type="checkbox"
@@ -415,28 +597,162 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
                 onChange={(e) => setModemMode(e.target.checked)}
                 style={{ width: "16px", height: "16px", marginRight: "8px", accentColor: "#0284c7" }}
               />
-              Modem modu (AT komutu gönder)
+              Modem modu (AT komutu)
             </label>
 
-            <button
-              type="button"
-              onClick={() => reconnectSerial()}
-              style={{
-                background: "#0284c7",
-                color: "#fff",
-                border: "none",
-                borderRadius: "5px",
-                padding: "0.35rem 0.75rem",
-                fontSize: "0.8rem",
-                fontWeight: 500,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-            >
-              <span>🔄</span> Yeniden Bağlan
-            </button>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button
+                type="button"
+                onClick={baudScanActive ? handleStopBaudScan : handleStartBaudScan}
+                style={{
+                  background: baudScanActive ? "#dc2626" : "#475569",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "5px",
+                  padding: "0.35rem 0.75rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <span>{baudScanActive ? "⏹️" : "🔍"}</span>{" "}
+                {baudScanActive ? "Taramayı Durdur" : "Baud Hızlarını Tara (8 sn/hız)"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => reconnectSerial()}
+                style={{
+                  background: "#0284c7",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "5px",
+                  padding: "0.35rem 0.75rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <span>🔄</span> Yeniden Bağlan
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Baud Tarama Sonuç Tablosu */}
+        {isDesktop && showBaudScanTable && (
+          <div
+            style={{
+              background: "#f1f5f9",
+              border: "1px solid #cbd5e1",
+              borderRadius: "8px",
+              padding: "0.75rem",
+              marginBottom: "0.85rem",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+              <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b" }}>
+                📊 Baud Hızı Tarama Sonuçları {baudScanActive && "(Taranıyor...)"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowBaudScanTable(false)}
+                style={{ background: "none", border: "none", fontSize: "0.75rem", color: "#64748b", cursor: "pointer" }}
+              >
+                Kapat
+              </button>
+            </div>
+
+            {baudScanError && (
+              <div style={{ color: "#dc2626", fontSize: "0.8rem", marginBottom: "0.4rem" }}>
+                Hata: {baudScanError}
+              </div>
+            )}
+
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+              <thead>
+                <tr style={{ background: "#e2e8f0", textAlign: "left", color: "#334155" }}>
+                  <th style={{ padding: "4px 8px" }}>Baud Rate</th>
+                  <th style={{ padding: "4px 8px" }}>Durum</th>
+                  <th style={{ padding: "4px 8px" }}>Gelen Bayt</th>
+                  <th style={{ padding: "4px 8px" }}>Yazdırılabilir (%)</th>
+                  <th style={{ padding: "4px 8px", textAlign: "right" }}>İşlem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ALL_BAUD_RATES.map((rate) => {
+                  const item = baudScanItems[rate];
+                  const hasData = (item?.byteCount || 0) > 0;
+                  const isScanningThis = item?.status === "scanning";
+
+                  return (
+                    <tr
+                      key={rate}
+                      style={{
+                        background: isScanningThis ? "#e0f2fe" : hasData ? "#dcfce7" : "#fff",
+                        borderBottom: "1px solid #e2e8f0",
+                      }}
+                    >
+                      <td style={{ padding: "4px 8px", fontWeight: 600 }}>{rate}</td>
+                      <td style={{ padding: "4px 8px" }}>
+                        {isScanningThis ? (
+                          <span style={{ color: "#0284c7", fontWeight: 600 }}>
+                            Dinleniyor ({item.secondsLeft} sn)...
+                          </span>
+                        ) : item?.status === "completed" ? (
+                          <span style={{ color: hasData ? "#15803d" : "#64748b" }}>
+                            {hasData ? "✓ Veri Alındı" : "Sessiz"}
+                          </span>
+                        ) : item?.status === "failed" ? (
+                          <span style={{ color: "#dc2626" }}>Açılamadı</span>
+                        ) : (
+                          <span style={{ color: "#94a3b8" }}>Bekliyor</span>
+                        )}
+                      </td>
+                      <td style={{ padding: "4px 8px", fontFamily: "monospace" }}>
+                        {item ? `${item.byteCount} B` : "0 B"}
+                      </td>
+                      <td style={{ padding: "4px 8px" }}>
+                        {item && item.byteCount > 0 ? (
+                          <span style={{ fontWeight: 600, color: item.printableRatio > 70 ? "#15803d" : "#b45309" }}>
+                            %{item.printableRatio}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td style={{ padding: "4px 8px", textAlign: "right" }}>
+                        <button
+                          type="button"
+                          disabled={baudRate === rate}
+                          onClick={() => {
+                            setBaudRate(rate);
+                            reconnectSerial();
+                          }}
+                          style={{
+                            fontSize: "0.72rem",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background: baudRate === rate ? "#94a3b8" : "#fff",
+                            color: baudRate === rate ? "#fff" : "#0284c7",
+                            cursor: baudRate === rate ? "default" : "pointer",
+                          }}
+                        >
+                          {baudRate === rate ? "Seçili" : "Bu Hızı Seç"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
 
@@ -446,11 +762,11 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
             background: "#f8fafc",
             border: "1px solid #e2e8f0",
             borderRadius: "8px",
-            padding: "1rem",
-            marginBottom: "1.25rem",
+            padding: "0.85rem",
+            marginBottom: "0.85rem",
           }}
         >
-          <div style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.5rem", color: "#1e293b" }}>
+          <div style={{ fontWeight: 600, fontSize: "0.85rem", marginBottom: "0.4rem", color: "#1e293b" }}>
             🧪 Çağrıyı Simüle Et (Test)
           </div>
           <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -461,10 +777,10 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
               placeholder="Telefon numarası (Örn: 05551234567)"
               style={{
                 flex: 1,
-                padding: "0.55rem 0.75rem",
+                padding: "0.45rem 0.65rem",
                 borderRadius: "6px",
                 border: "1px solid #cbd5e1",
-                fontSize: "0.9rem",
+                fontSize: "0.85rem",
               }}
             />
             <button
@@ -473,8 +789,8 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
               className="login-button"
               style={{
                 marginTop: 0,
-                padding: "0.55rem 1rem",
-                fontSize: "0.85rem",
+                padding: "0.45rem 0.85rem",
+                fontSize: "0.82rem",
                 whiteSpace: "nowrap",
                 cursor: "pointer",
               }}
@@ -485,8 +801,8 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
 
           {/* Sahte Cihaz Modu (Yalnızca config.json'da mockSerial: true ise görünür) */}
           {isDesktop && Boolean(desktopConfig?.mockSerial) && (
-            <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px dashed #cbd5e1" }}>
-              <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#475569", marginBottom: "0.4rem" }}>
+            <div style={{ marginTop: "0.6rem", paddingTop: "0.6rem", borderTop: "1px dashed #cbd5e1" }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#475569", marginBottom: "0.35rem" }}>
                 🤖 Sahte Seri Port Cihazı (Parçalanmış Veri ve CRLF Format Testleri):
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
@@ -509,8 +825,8 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
                       }
                     }}
                     style={{
-                      fontSize: "0.75rem",
-                      padding: "0.3rem 0.6rem",
+                      fontSize: "0.72rem",
+                      padding: "0.25rem 0.5rem",
                       borderRadius: "4px",
                       border: "1px solid #94a3b8",
                       background: "#f1f5f9",
@@ -528,8 +844,8 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
           {simMessage && (
             <div
               style={{
-                marginTop: "0.5rem",
-                fontSize: "0.85rem",
+                marginTop: "0.4rem",
+                fontSize: "0.8rem",
                 color: simMessage.startsWith("Hata") || simMessage.includes("tetiklenemedi") ? "#b91c1c" : "#15803d",
               }}
             >
@@ -538,11 +854,11 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
           )}
         </div>
 
-        {/* Ham Veri Log Alanı */}
-        <div style={{ marginBottom: "1.25rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+        {/* Ham Veri Log Alanı (500 Satır, Anında ms HEX/ASCII & Kırmızı Hatalar) */}
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
             <label style={{ fontWeight: 600, fontSize: "0.85rem", color: "#334155" }}>
-              Ham Veri Log Kayıtları ({logs.length})
+              Ham Veri Log Kayıtları ({logs.length} / 500 satır)
             </label>
             {logs.length > 0 && (
               <button
@@ -551,7 +867,7 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
                   background: "none",
                   border: "none",
                   color: "#64748b",
-                  fontSize: "0.8rem",
+                  fontSize: "0.78rem",
                   cursor: "pointer",
                   textDecoration: "underline",
                 }}
@@ -562,12 +878,12 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
           </div>
           <div
             style={{
-              height: "120px",
+              height: "160px",
               overflowY: "auto",
               background: "#0f172a",
               color: "#94a3b8",
               fontFamily: "monospace",
-              fontSize: "0.78rem",
+              fontSize: "0.76rem",
               padding: "0.6rem 0.75rem",
               borderRadius: "6px",
               border: "1px solid #1e293b",
@@ -575,22 +891,25 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
           >
             {logs.length === 0 ? (
               <div style={{ color: "#64748b", fontStyle: "italic" }}>
-                Henüz log kaydı yok. Gelen veya simüle edilen çağrılar burada listelenir.
+                Henüz log kaydı yok. COM porttan gelen ham baytlar anında ms zaman damgası, HEX ve ASCII olarak buraya düşer.
               </div>
             ) : (
               logs.map((log) => (
-                <div key={log.id} style={{ marginBottom: "2px", lineHeight: "1.3" }}>
+                <div key={log.id} style={{ marginBottom: "2px", lineHeight: "1.35", wordBreak: "break-all" }}>
                   <span style={{ color: "#64748b" }}>[{log.timestamp}]</span>{" "}
                   <span
                     style={{
                       color:
-                        log.type === "call"
-                          ? "#38bdf8"
-                          : log.type === "error"
-                          ? "#f87171"
+                        log.type === "error"
+                          ? "#ef4444" // Hata kırmızı
+                          : log.type === "raw"
+                          ? "#34d399" // Ham bayt chunk yeşilimsi
+                          : log.type === "call"
+                          ? "#38bdf8" // Çağrı mavi
                           : log.type === "warn"
-                          ? "#fbbf24"
-                          : "#cbd5e1",
+                          ? "#fbbf24" // Uyarı sarı
+                          : "#cbd5e1", // Info gri
+                      fontWeight: log.type === "error" || log.type === "call" ? 600 : 400,
                     }}
                   >
                     {log.text}
