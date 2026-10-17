@@ -116,3 +116,55 @@ test("CallerIdStreamBuffer: Modem RING ve +CLIP akışı", () => {
   assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0], "05551112233");
 });
+
+test("extractBackupPhone & parseCallerIdLine: Fallback numara ayıklama ve yanlış eşleşmeleri önleme", () => {
+  // Cihaz seri no ve hat no ile karışık gelen numara
+  assert.strictEqual(parseCallerIdLine("652EB1525:1 05321234567"), "05321234567");
+  assert.strictEqual(parseCallerIdLine("CID:652EB1525:1 05449876543"), "05449876543");
+  assert.strictEqual(parseCallerIdLine("HAT:01 NO:02125556677"), "02125556677");
+
+  // Sabit hatlar 0[2-4]
+  assert.strictEqual(parseCallerIdLine("PORT:1 03121234567 OK"), "03121234567");
+  assert.strictEqual(parseCallerIdLine("CH-2 04121234567"), "04121234567");
+
+  // Ön ekler: +90, 0090, 90
+  assert.strictEqual(parseCallerIdLine("CALL: +905321234567 RING"), "05321234567");
+  assert.strictEqual(parseCallerIdLine("CALL: +902161234567"), "02161234567");
+  assert.strictEqual(parseCallerIdLine("RAW: 00905321234567"), "05321234567");
+  assert.strictEqual(parseCallerIdLine("RAW: 905321234567"), "05321234567");
+
+  // Yanlış eşleşmeler kesinlikle engellenmeli (null dönmeli):
+  // Tarih ve saat rakamları
+  assert.strictEqual(parseCallerIdLine("DATE=1015 TIME=0715"), null);
+  // 15 haneli cihaz seri numarası (11 hane ile kısmi eşleşmemeli)
+  assert.strictEqual(parseCallerIdLine("DEVICE_SN:123456789012345"), null);
+  // 10 hane eksik numara
+  assert.strictEqual(parseCallerIdLine("CH1: 0532123456"), null);
+  // 12 hane fazla numara
+  assert.strictEqual(parseCallerIdLine("CH1: 053212345678"), null);
+  // Geçersiz alan kodu (06, 01)
+  assert.strictEqual(parseCallerIdLine("CALL: 06121234567"), null);
+  assert.strictEqual(parseCallerIdLine("CALL: 01121234567"), null);
+});
+
+test("CallerIdStreamBuffer: Satır sonu (CRLF) gelmese de 80ms sonra timeout flush", async () => {
+  const calls: string[] = [];
+  const lines: string[] = [];
+
+  const buffer = new CallerIdStreamBuffer({
+    onCall: (phone) => calls.push(phone),
+    onLine: (_line, escaped) => lines.push(escaped),
+  });
+
+  // CR ya da LF yok, cihaz sadece baytları gönderip durdu
+  buffer.feed("652EB1525:1 05321234567");
+  assert.strictEqual(calls.length, 0); // Henüz 80ms dolmadı
+
+  // 100ms bekle
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0], "05321234567");
+  assert.strictEqual(lines.length, 1);
+});
+

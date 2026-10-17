@@ -32,15 +32,26 @@ const desktopAPI: DesktopAPI = {
     open: (
       port: string,
       baudRate: number,
-      enableModemMode?: boolean
+      enableModemMode?: boolean,
+      signals?: any
     ): Promise<{ success: boolean; error?: string }> => {
-      return ipcRenderer.invoke("serial:open", { port, baudRate, enableModemMode });
+      return ipcRenderer.invoke("serial:open", { port, baudRate, enableModemMode, signals });
     },
     close: (): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke("serial:close");
     },
     status: (): Promise<SerialStatus> => {
       return ipcRenderer.invoke("serial:status");
+    },
+    setSignals: (signals: any): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke("serial:set-signals", signals);
+    },
+    onSignals: (callback: (signals: any) => void) => {
+      const handler = (_event: any, signals: any) => callback(signals);
+      ipcRenderer.on("serial:signals", handler);
+      return () => {
+        ipcRenderer.removeListener("serial:signals", handler);
+      };
     },
     onData: (callback: (data: SerialDataEvent) => void) => {
       const handler = (_event: any, data: SerialDataEvent) => callback(data);
@@ -49,11 +60,31 @@ const desktopAPI: DesktopAPI = {
         ipcRenderer.removeListener("serial:data", handler);
       };
     },
+    onRaw: (callback: (raw: any) => void) => {
+      const handler = (_event: any, raw: any) => callback(raw);
+      ipcRenderer.on("serial:raw", handler);
+      return () => {
+        ipcRenderer.removeListener("serial:raw", handler);
+      };
+    },
     onStatus: (callback: (status: SerialStatus) => void) => {
       const handler = (_event: any, status: SerialStatus) => callback(status);
       ipcRenderer.on("serial:status", handler);
       return () => {
         ipcRenderer.removeListener("serial:status", handler);
+      };
+    },
+    startBaudScan: (port: string, signals?: any): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke("serial:start-baud-scan", { port, signals });
+    },
+    stopBaudScan: (): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke("serial:stop-baud-scan");
+    },
+    onBaudScanProgress: (callback: (item: any) => void) => {
+      const handler = (_event: any, item: any) => callback(item);
+      ipcRenderer.on("serial:baud-scan-progress", handler);
+      return () => {
+        ipcRenderer.removeListener("serial:baud-scan-progress", handler);
       };
     },
     triggerMock: (sampleType?: "a" | "b" | "c" | "d" | "e"): Promise<void> => {

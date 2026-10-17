@@ -86,6 +86,74 @@ export function parseCallerIdLine(text: string): string | null {
     if (norm) return norm;
   }
 
+  // (f) Yedek numara ayıklama: Bilinen etiketler eşleşmezse serbest metindeki rakam dizilerini süz
+  const backup = extractBackupPhone(trimmed);
+  if (backup) {
+    return backup;
+  }
+
+  return null;
+}
+
+/**
+ * Yedek Numara Ayıklayıcı (Fallback Regex Extractor)
+ * Bilinen formatlar eşleşmediğinde, metindeki rakam dizilerini çıkarır ve yalnızca
+ * Türkiye telefon standartlarına TAM uyanları (öncesi ve sonrası rakam olmayan) numara sayar:
+ * 1) 05XXXXXXXXX (11 hane cep)
+ * 2) 0[2-4]XXXXXXXXX (11 hane sabit hat)
+ * 3) +90 / 0090 / 90 ön ekli 10 haneli numaralar
+ * 
+ * Cihaz kimliği (örn. 652EB1525:1), hat no veya tarih/saat (DATE=1015 TIME=0715)
+ * gibi rakamların yanlış eşleşmesini engeller.
+ */
+export function extractBackupPhone(text: string): string | null {
+  if (!text || typeof text !== "string") return null;
+
+  // 1) +90 ön ekli 10 haneli (toplam 10 hane: 5xx cep veya [2-4]xx sabit)
+  const plus90Match = text.match(/(?<![\d+])\+90[\s-]?([1-9]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (plus90Match) {
+    const raw = (plus90Match[1] + plus90Match[2] + plus90Match[3] + plus90Match[4]).replace(/\D/g, "");
+    if (/^(?:5\d{9}|[2-4]\d{9})$/.test(raw)) {
+      return "0" + raw;
+    }
+  }
+
+  // 2) 0090 ön ekli 10 haneli
+  const doubleZero90Match = text.match(/(?<!\d)0090[\s-]?([1-9]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (doubleZero90Match) {
+    const raw = (doubleZero90Match[1] + doubleZero90Match[2] + doubleZero90Match[3] + doubleZero90Match[4]).replace(/\D/g, "");
+    if (/^(?:5\d{9}|[2-4]\d{9})$/.test(raw)) {
+      return "0" + raw;
+    }
+  }
+
+  // 3) 90 ön ekli 10 haneli (toplam 12 hane)
+  const zero90Match = text.match(/(?<!\d)90[\s-]?([1-9]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (zero90Match) {
+    const raw = (zero90Match[1] + zero90Match[2] + zero90Match[3] + zero90Match[4]).replace(/\D/g, "");
+    if (/^(?:5\d{9}|[2-4]\d{9})$/.test(raw)) {
+      return "0" + raw;
+    }
+  }
+
+  // 4) 05XXXXXXXXX (11 hane cep)
+  const mobileMatch = text.match(/(?<!\d)(05\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (mobileMatch) {
+    const raw = (mobileMatch[1] + mobileMatch[2] + mobileMatch[3] + mobileMatch[4]).replace(/\D/g, "");
+    if (/^05\d{9}$/.test(raw)) {
+      return raw;
+    }
+  }
+
+  // 5) 0[2-4]XXXXXXXXX (11 hane sabit hat)
+  const landlineMatch = text.match(/(?<!\d)(0[2-4]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (landlineMatch) {
+    const raw = (landlineMatch[1] + landlineMatch[2] + landlineMatch[3] + landlineMatch[4]).replace(/\D/g, "");
+    if (/^0[2-4]\d{9}$/.test(raw)) {
+      return raw;
+    }
+  }
+
   return null;
 }
 
@@ -97,6 +165,8 @@ export class CallerIdStreamBuffer {
   private buffer: string = "";
   private multiLineBuffer: string = "";
   private multiLineTimer: NodeJS.Timeout | null = null;
+  private flushTimer: NodeJS.Timeout | null = null;
+  private readonly flushTimeoutMs: number = 80;
 
   private onLineCallback?: (line: string, escapedRaw: string) => void;
   private onCallCallback?: (phone: string) => void;
@@ -130,9 +200,17 @@ export class CallerIdStreamBuffer {
 
   /**
    * Seri porttan gelen parça (chunk) veriyi işler.
+   * Satır sonu gelmese bile son bayttan 80 ms sonra tamponu otomatik flush eder.
    */
   public feed(chunk: string) {
     if (!chunk) return;
+
+    // Yeni bayt geldiği için önceki flush sayacını iptal et
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
     this.buffer += chunk;
 
     // Satır sonlarına göre (CR, LF veya CRLF) böl
@@ -155,6 +233,29 @@ export class CallerIdStreamBuffer {
 
       this.processCompletedLine(line);
       newlineIndex = this.findNewlineIndex(this.buffer);
+    }
+
+    // Satır sonu gelmediyse ve tamponda veri varsa son bayttan 80 ms sonra flush et
+    if (this.buffer.length > 0) {
+      this.flushTimer = setTimeout(() => {
+        this.flush();
+      }, this.flushTimeoutMs);
+    }
+  }
+
+  /**
+   * Satır sonu beklemeden tamponu hemen işleme gönderir.
+   */
+  public flush() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    if (this.buffer.length > 0) {
+      const line = this.buffer;
+      this.buffer = "";
+      this.processCompletedLine(line);
     }
   }
 
@@ -216,6 +317,10 @@ export class CallerIdStreamBuffer {
   }
 
   public reset() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
     this.buffer = "";
     this.multiLineBuffer = "";
     if (this.multiLineTimer) {

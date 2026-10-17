@@ -34,6 +34,36 @@ export interface SerialStatus {
   reconnecting?: boolean;
 }
 
+export type SignalOption = "default" | "on" | "off";
+
+export interface SignalSettings {
+  dtr?: SignalOption;
+  rts?: SignalOption;
+}
+
+export interface SerialSignals {
+  cts: boolean;
+  dsr: boolean;
+  cd: boolean;
+  ri?: boolean | null;
+}
+
+export interface SerialRawEvent {
+  timestamp: string;
+  hex: string;
+  ascii: string;
+  len: number;
+}
+
+export interface BaudScanItem {
+  baudRate: number;
+  status: "pending" | "scanning" | "completed" | "failed";
+  byteCount: number;
+  printableCount: number;
+  printableRatio: number;
+  secondsLeft: number;
+}
+
 export interface SerialDataEvent {
   raw: string;
   escaped: string;
@@ -52,6 +82,7 @@ export interface DesktopPrintOptions {
   printerName: string;
   copies?: number;
   paperWidthMm?: number;
+  savePdfForDebug?: boolean;
 }
 
 export interface DesktopAPI {
@@ -62,11 +93,22 @@ export interface DesktopAPI {
   onIncomingCall: (callback: (phone: string) => void) => () => void;
   serial: {
     listPorts: () => Promise<SerialPortInfo[]>;
-    open: (port: string, baudRate: number, enableModemMode?: boolean) => Promise<{ success: boolean; error?: string }>;
+    open: (
+      port: string,
+      baudRate: number,
+      enableModemMode?: boolean,
+      signals?: SignalSettings
+    ) => Promise<{ success: boolean; error?: string }>;
     close: () => Promise<{ success: boolean; error?: string }>;
     status: () => Promise<SerialStatus>;
+    setSignals: (signals: SignalSettings) => Promise<{ success: boolean; error?: string }>;
+    onSignals: (callback: (signals: SerialSignals | null) => void) => () => void;
     onData: (callback: (data: SerialDataEvent) => void) => () => void;
+    onRaw: (callback: (raw: SerialRawEvent) => void) => () => void;
     onStatus: (callback: (status: SerialStatus) => void) => () => void;
+    startBaudScan: (port: string, signals?: SignalSettings) => Promise<{ success: boolean; error?: string }>;
+    stopBaudScan: () => Promise<{ success: boolean }>;
+    onBaudScanProgress: (callback: (item: BaudScanItem) => void) => () => void;
     triggerMock: (sampleType?: "a" | "b" | "c" | "d" | "e") => Promise<void>;
   };
   print: {

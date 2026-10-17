@@ -1,7 +1,15 @@
 import { BrowserWindow } from "electron";
 import { SerialPort } from "serialport";
 import { CallerIdStreamBuffer } from "../callerIdParser";
-import { DesktopConfig, SerialPortInfo, SerialStatus } from "../types/desktop";
+import {
+  BaudScanItem,
+  DesktopConfig,
+  SerialPortInfo,
+  SerialRawEvent,
+  SerialSignals,
+  SerialStatus,
+  SignalSettings,
+} from "../types/desktop";
 
 const ALLOWED_BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 const COM_PORT_REGEX = /^COM\d+$/i;
@@ -18,6 +26,7 @@ export class SerialManager {
   private currentPortName: string | null = null;
   private currentBaudRate: number | null = null;
   private currentModemMode: boolean = false;
+  private currentSignalsConfig: SignalSettings = { dtr: "default", rts: "default" };
   private mainWindow: BrowserWindow | null = null;
   private config: DesktopConfig | null = null;
 
@@ -26,6 +35,14 @@ export class SerialManager {
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private maxReconnectAttempts: number = 3;
+
+  // Sinyal izleme (CTS, DSR, CD, RI)
+  private signalPollTimer: NodeJS.Timeout | null = null;
+  private lastSignals: SerialSignals | null = null;
+
+  // Baud tarama
+  private isBaudScanning: boolean = false;
+  private stopBaudScanRequested: boolean = false;
 
   // Çağrı odaklanma sınırlayıcısı: Aynı numara için 10 saniyede en fazla 1 kez pencereyi öne getir
   private lastFocusedPhone: string | null = null;
@@ -86,28 +103,36 @@ export class SerialManager {
    * @param portName COM port adı (örn. COM1, COM3)
    * @param baudRate Baud rate (varsayılan 9600)
    * @param enableModemMode Modem AT komutlarının gönderilip gönderilmeyeceği (varsayılan false)
+   * @param signals DTR ve RTS sinyal ayarları ("default" | "on" | "off")
    */
   public async openPort(
     portName: string,
     baudRate: number = 9600,
-    enableModemMode: boolean = false
+    enableModemMode: boolean = false,
+    signals?: SignalSettings
   ): Promise<{ success: boolean; error?: string }> {
+    if (signals) {
+      this.currentSignalsConfig = { ...this.currentSignalsConfig, ...signals };
+    }
+
     const cleanPort = portName.trim().toUpperCase();
 
     // 1. Parametre Doğrulaması
     if (!COM_PORT_REGEX.test(cleanPort)) {
       const err = `Geçersiz COM port biçimi: "${portName}". (Örn: COM1, COM3)`;
       this.updateStatus({ error: err });
+      this.emitLog(`[PORT HATA] ${err}`, "error");
       return { success: false, error: err };
     }
 
     if (!ALLOWED_BAUD_RATES.includes(baudRate)) {
       const err = `Geçersiz Baud Rate: ${baudRate}. İzin verilenler: ${ALLOWED_BAUD_RATES.join(", ")}`;
       this.updateStatus({ error: err });
+      this.emitLog(`[PORT HATA] ${err}`, "error");
       return { success: false, error: err };
     }
 
-    // İdempotent: Eğer zaten aynı port açık ve parametreler aynıysa bağlantıyı koru, tekrar açmaya çalışma
+    // İdempotent: Eğer zaten aynı port açık ve parametreler aynıysa sinyalleri güncelle, tekrar açmaya çalışma
     if (
       this.currentPort &&
       this.currentPort.isOpen &&
@@ -115,6 +140,7 @@ export class SerialManager {
       this.currentBaudRate === baudRate &&
       this.currentModemMode === enableModemMode
     ) {
+      await this.applySignalsToOpenPort();
       return { success: true };
     }
 
@@ -138,7 +164,28 @@ export class SerialManager {
         this.currentPort = port;
 
         port.on("data", (chunk: Buffer) => {
-          const text = chunk.toString("latin1"); // Türkçe/ASCII karakter setleri
+          // 1. Ham veriyi tampon ya da parser beklemeden ms zaman damgası, HEX ve ASCII ile log'a gönder
+          const now = new Date();
+          const ts =
+            now.toTimeString().split(" ")[0] +
+            "." +
+            String(now.getMilliseconds()).padStart(3, "0");
+          const hex = chunk.toString("hex").toUpperCase().match(/../g)?.join(" ") || "";
+          let ascii = "";
+          for (let i = 0; i < chunk.length; i++) {
+            const b = chunk[i];
+            ascii += b >= 32 && b <= 126 ? String.fromCharCode(b) : ".";
+          }
+
+          this.emitRawChunk({
+            timestamp: ts,
+            hex,
+            ascii,
+            len: chunk.length,
+          });
+
+          // 2. Parser tamponuna latin1 olarak aktar
+          const text = chunk.toString("latin1");
           this.streamBuffer.feed(text);
         });
 
@@ -146,24 +193,27 @@ export class SerialManager {
           const friendlyError = this.translateError(cleanPort, err);
           console.error(`[SerialManager] Hata (${cleanPort}):`, friendlyError);
           this.updateStatus({ error: friendlyError, isOpen: false });
+          this.emitLog(`[PORT HATA] ${friendlyError}`, "error");
 
           // Beklenmedik bağlantı kopmalarında yeniden bağlanmayı dene
-          if (this.shouldBeOpen && !this.reconnectTimer) {
+          if (this.shouldBeOpen && !this.reconnectTimer && !this.isBaudScanning) {
             this.scheduleReconnect();
           }
         });
 
         port.on("close", () => {
           console.log(`[SerialManager] Port kapandı: ${cleanPort}`);
+          this.stopSignalPolling();
           const wasOpen = this.status.isOpen;
           this.updateStatus({ isOpen: false });
+          this.emitLog(`[PORT KAPANDI] ${cleanPort}`, "warn");
 
-          if (this.shouldBeOpen && wasOpen && !this.reconnectTimer) {
+          if (this.shouldBeOpen && wasOpen && !this.reconnectTimer && !this.isBaudScanning) {
             this.scheduleReconnect();
           }
         });
 
-        port.open((err) => {
+        port.open(async (err) => {
           if (err) {
             const friendly = this.translateError(cleanPort, err);
             console.warn(`[SerialManager] Port açılamadı (${cleanPort}):`, friendly);
@@ -173,11 +223,14 @@ export class SerialManager {
               baudRate,
               error: friendly,
             });
+            this.emitLog(`[PORT HATA] ${friendly}`, "error");
             resolve({ success: false, error: friendly });
             return;
           }
 
-          console.log(`[SerialManager] Port başarıyla açıldı: ${cleanPort} (${baudRate} baud, Modem Modu: ${enableModemMode})`);
+          console.log(
+            `[SerialManager] Port başarıyla açıldı: ${cleanPort} (${baudRate} baud, Modem Modu: ${enableModemMode})`
+          );
           this.reconnectAttempts = 0;
           this.updateStatus({
             isOpen: true,
@@ -186,6 +239,19 @@ export class SerialManager {
             error: null,
             reconnecting: false,
           });
+
+          // Sinyalleri (DTR / RTS) uygula
+          await this.applySignalsToOpenPort();
+
+          // Sinyal pinlerini (CTS, DSR, CD, RI) periyodik 500ms okumaya başla
+          this.startSignalPolling();
+
+          const dtrLabel = this.currentSignalsConfig.dtr ?? "Varsayılan";
+          const rtsLabel = this.currentSignalsConfig.rts ?? "Varsayılan";
+          this.emitLog(
+            `[PORT AÇILDI] ${cleanPort} (${baudRate} baud, DTR: ${dtrLabel}, RTS: ${rtsLabel})`,
+            "info"
+          );
 
           // Modem modu yalnızca kullanıcı ayarlarından özellikle açıldıysa AT komutu gönderilir
           if (enableModemMode) {
@@ -197,6 +263,7 @@ export class SerialManager {
       } catch (err: any) {
         const friendly = this.translateError(cleanPort, err);
         this.updateStatus({ error: friendly, isOpen: false });
+        this.emitLog(`[PORT HATA] ${friendly}`, "error");
         resolve({ success: false, error: friendly });
       }
     });
@@ -207,6 +274,8 @@ export class SerialManager {
    */
   public async closePort(): Promise<{ success: boolean; error?: string }> {
     this.shouldBeOpen = false;
+    this.stopSignalPolling();
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -220,6 +289,7 @@ export class SerialManager {
 
     return new Promise((resolve) => {
       const port = this.currentPort;
+      const portName = this.currentPortName;
       this.currentPort = null;
 
       if (!port || !port.isOpen) {
@@ -233,9 +303,316 @@ export class SerialManager {
         if (err) {
           console.warn("[SerialManager] Port kapatılırken uyarı:", err.message);
         }
+        if (portName) {
+          this.emitLog(`[PORT KAPANDI] ${portName}`, "warn");
+        }
         resolve({ success: true });
       });
     });
+  }
+
+  /**
+   * DTR ve RTS sinyallerini ayarlar ve port açıkken anında uygular.
+   */
+  public async setSignals(
+    signals: SignalSettings
+  ): Promise<{ success: boolean; error?: string }> {
+    this.currentSignalsConfig = { ...this.currentSignalsConfig, ...signals };
+    return this.applySignalsToOpenPort();
+  }
+
+  private async applySignalsToOpenPort(): Promise<{ success: boolean; error?: string }> {
+    if (!this.currentPort || !this.currentPort.isOpen) {
+      return { success: true };
+    }
+
+    const setOpts: { dtr?: boolean; rts?: boolean } = {};
+    if (this.currentSignalsConfig.dtr === "on") setOpts.dtr = true;
+    else if (this.currentSignalsConfig.dtr === "off") setOpts.dtr = false;
+
+    if (this.currentSignalsConfig.rts === "on") setOpts.rts = true;
+    else if (this.currentSignalsConfig.rts === "off") setOpts.rts = false;
+
+    if (Object.keys(setOpts).length === 0) {
+      return { success: true };
+    }
+
+    return new Promise((resolve) => {
+      this.currentPort!.set(setOpts, (err) => {
+        if (err) {
+          const msg = `Sinyal ayarlanamadı: ${err.message}`;
+          console.warn("[SerialManager] Sinyal hatası:", msg);
+          this.emitLog(`[SİNYAL HATA] ${msg}`, "error");
+          resolve({ success: false, error: msg });
+        } else {
+          const dtrStr = this.currentSignalsConfig.dtr ?? "Varsayılan";
+          const rtsStr = this.currentSignalsConfig.rts ?? "Varsayılan";
+          this.emitLog(`[SİNYAL UYGULANDI] DTR: ${dtrStr}, RTS: ${rtsStr}`, "info");
+          resolve({ success: true });
+        }
+      });
+    });
+  }
+
+  /**
+   * CTS, DSR, CD (ve varsa RI) pin durumlarını 500 ms'de bir okur,
+   * değişimleri tespit edip log'a ve arayüze iletir.
+   */
+  private startSignalPolling() {
+    this.stopSignalPolling();
+    this.signalPollTimer = setInterval(() => {
+      if (!this.currentPort || !this.currentPort.isOpen) {
+        this.stopSignalPolling();
+        return;
+      }
+
+      this.currentPort.get((err, status) => {
+        if (err || !status) return;
+
+        const currentSignals: SerialSignals = {
+          cts: Boolean(status.cts),
+          dsr: Boolean(status.dsr),
+          cd: Boolean(status.dcd), // dcd pin corresponds to CD (Carrier Detect)
+          ri: typeof (status as any).ri === "boolean" ? (status as any).ri : null,
+        };
+
+        if (!this.lastSignals) {
+          this.lastSignals = currentSignals;
+          this.emitSignals(currentSignals);
+        } else if (
+          this.lastSignals.cts !== currentSignals.cts ||
+          this.lastSignals.dsr !== currentSignals.dsr ||
+          this.lastSignals.cd !== currentSignals.cd ||
+          this.lastSignals.ri !== currentSignals.ri
+        ) {
+          const changes: string[] = [];
+          if (this.lastSignals.cts !== currentSignals.cts) {
+            changes.push(`CTS:${currentSignals.cts ? "AÇIK" : "KAPALI"}`);
+          }
+          if (this.lastSignals.dsr !== currentSignals.dsr) {
+            changes.push(`DSR:${currentSignals.dsr ? "AÇIK" : "KAPALI"}`);
+          }
+          if (this.lastSignals.cd !== currentSignals.cd) {
+            changes.push(`CD:${currentSignals.cd ? "AÇIK" : "KAPALI"}`);
+          }
+          if (
+            this.lastSignals.ri !== currentSignals.ri &&
+            currentSignals.ri !== null
+          ) {
+            changes.push(`RI:${currentSignals.ri ? "AÇIK" : "KAPALI"}`);
+          }
+
+          this.lastSignals = currentSignals;
+          this.emitSignals(currentSignals);
+          this.emitLog(`[SİNYAL DEĞİŞİMİ] ${changes.join(", ")}`, "info");
+        } else {
+          this.emitSignals(currentSignals);
+        }
+      });
+    }, 500);
+  }
+
+  private stopSignalPolling() {
+    if (this.signalPollTimer) {
+      clearInterval(this.signalPollTimer);
+      this.signalPollTimer = null;
+    }
+    this.lastSignals = null;
+    this.emitSignals(null);
+  }
+
+  /**
+   * Baud Tarama: 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 hızlarını
+   * sırayla 8 sn dinler; her hızda gelen bayt sayısını ve yazdırılabilir karakter oranını bildirir.
+   */
+  public async scanBaudRates(
+    portName: string,
+    signals?: SignalSettings
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.isBaudScanning) {
+      return { success: false, error: "Baud tarama işlemi zaten devam ediyor." };
+    }
+
+    const previousPort = this.currentPortName;
+    const previousBaud = this.currentBaudRate;
+    const previousModem = this.currentModemMode;
+    const previousShouldBeOpen = this.shouldBeOpen;
+
+    this.isBaudScanning = true;
+    this.stopBaudScanRequested = false;
+
+    // Mevcut portu kapat
+    await this.closePort();
+
+    this.emitLog(
+      `[BAUD TARAMA BAŞLADI] ${portName} portunda 8 hız sırayla 8'er saniye dinleniyor...`,
+      "info"
+    );
+
+    const baudList = ALLOWED_BAUD_RATES;
+
+    try {
+      for (const rate of baudList) {
+        if (this.stopBaudScanRequested) {
+          this.emitLog("[BAUD TARAMA İPTAL EDİLDİ] Kullanıcı tarafından durduruldu.", "warn");
+          break;
+        }
+
+        let byteCount = 0;
+        let printableCount = 0;
+        let secondsLeft = 8;
+
+        this.emitBaudProgress({
+          baudRate: rate,
+          status: "scanning",
+          byteCount: 0,
+          printableCount: 0,
+          printableRatio: 0,
+          secondsLeft,
+        });
+
+        // Portu bu hızda aç
+        const port = new SerialPort({
+          path: portName.trim().toUpperCase(),
+          baudRate: rate,
+          autoOpen: false,
+        });
+
+        let portOpenSuccess = false;
+
+        await new Promise<void>((res) => {
+          port.open((err) => {
+            if (err) {
+              console.warn(`[SerialManager Scan] ${rate} açılamadı:`, err.message);
+              res();
+              return;
+            }
+            portOpenSuccess = true;
+            res();
+          });
+        });
+
+        if (!portOpenSuccess) {
+          this.emitBaudProgress({
+            baudRate: rate,
+            status: "failed",
+            byteCount: 0,
+            printableCount: 0,
+            printableRatio: 0,
+            secondsLeft: 0,
+          });
+          continue;
+        }
+
+        // Sinyalleri uygula
+        const activeSignals = signals || this.currentSignalsConfig;
+        const setOpts: { dtr?: boolean; rts?: boolean } = {};
+        if (activeSignals.dtr === "on") setOpts.dtr = true;
+        else if (activeSignals.dtr === "off") setOpts.dtr = false;
+        if (activeSignals.rts === "on") setOpts.rts = true;
+        else if (activeSignals.rts === "off") setOpts.rts = false;
+        if (Object.keys(setOpts).length > 0) {
+          await new Promise<void>((res) => port.set(setOpts, () => res()));
+        }
+
+        // Veri dinleme
+        port.on("data", (chunk: Buffer) => {
+          byteCount += chunk.length;
+          for (let i = 0; i < chunk.length; i++) {
+            const b = chunk[i];
+            if ((b >= 32 && b <= 126) || b === 10 || b === 13 || b === 9) {
+              printableCount++;
+            }
+          }
+
+          // Anında raw log'a da yaz
+          const now = new Date();
+          const ts =
+            now.toTimeString().split(" ")[0] +
+            "." +
+            String(now.getMilliseconds()).padStart(3, "0");
+          const hex = chunk.toString("hex").toUpperCase().match(/../g)?.join(" ") || "";
+          let ascii = "";
+          for (let i = 0; i < chunk.length; i++) {
+            const b = chunk[i];
+            ascii += b >= 32 && b <= 126 ? String.fromCharCode(b) : ".";
+          }
+          this.emitRawChunk({ timestamp: ts, hex, ascii, len: chunk.length });
+
+          const ratio = byteCount > 0 ? Number(((printableCount / byteCount) * 100).toFixed(1)) : 0;
+          this.emitBaudProgress({
+            baudRate: rate,
+            status: "scanning",
+            byteCount,
+            printableCount,
+            printableRatio: ratio,
+            secondsLeft,
+          });
+        });
+
+        // 8 saniye bekle (1'er saniyelik sayaçla)
+        for (let s = 8; s > 0; s--) {
+          if (this.stopBaudScanRequested) break;
+          secondsLeft = s;
+          const ratio = byteCount > 0 ? Number(((printableCount / byteCount) * 100).toFixed(1)) : 0;
+          this.emitBaudProgress({
+            baudRate: rate,
+            status: "scanning",
+            byteCount,
+            printableCount,
+            printableRatio: ratio,
+            secondsLeft,
+          });
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+
+        // Portu kapat
+        await new Promise<void>((res) => {
+          if (port.isOpen) {
+            port.close(() => res());
+          } else {
+            res();
+          }
+        });
+
+        const finalRatio = byteCount > 0 ? Number(((printableCount / byteCount) * 100).toFixed(1)) : 0;
+        this.emitBaudProgress({
+          baudRate: rate,
+          status: "completed",
+          byteCount,
+          printableCount,
+          printableRatio: finalRatio,
+          secondsLeft: 0,
+        });
+
+        this.emitLog(
+          `[BAUD TARAMA] ${rate} baud: ${byteCount} bayt alındı (Yazdırılabilir: %${finalRatio})`,
+          byteCount > 0 ? "info" : "warn"
+        );
+      }
+    } finally {
+      this.isBaudScanning = false;
+      this.emitLog("[BAUD TARAMA TAMAMLANDI]", "info");
+
+      // Eğer önceki bağlantı açıktıysa eski ayarlarla yeniden bağlan
+      if (previousShouldBeOpen && previousPort && previousBaud) {
+        await this.openPort(
+          previousPort,
+          previousBaud,
+          previousModem,
+          this.currentSignalsConfig
+        );
+      }
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Devam eden baud taramasını durdurur.
+   */
+  public stopBaudScan() {
+    this.stopBaudScanRequested = true;
   }
 
   /**
@@ -301,6 +678,42 @@ export class SerialManager {
   private emitData(payload: { raw: string; escaped: string }) {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send("serial:data", payload);
+    }
+  }
+
+  /**
+   * Her gelen chunk baytını anında ms zaman damgası, HEX ve ASCII ile web'e aktarır.
+   */
+  private emitRawChunk(payload: SerialRawEvent) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("serial:raw", payload);
+    }
+  }
+
+  /**
+   * Log mesajını doğrudan web log listesine ekler.
+   */
+  private emitLog(text: string, type: "info" | "call" | "warn" | "error" = "info") {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("serial:log", { text, type });
+    }
+  }
+
+  /**
+   * CTS, DSR, CD, RI sinyal durumlarını web arayüzüne aktarır.
+   */
+  private emitSignals(signals: SerialSignals | null) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("serial:signals", signals);
+    }
+  }
+
+  /**
+   * Baud tarama ilerleme durumunu web arayüzüne aktarır.
+   */
+  private emitBaudProgress(item: BaudScanItem) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("serial:baud-scan-progress", item);
     }
   }
 

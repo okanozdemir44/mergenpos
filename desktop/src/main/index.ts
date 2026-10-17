@@ -164,8 +164,8 @@ app.whenReady().then(() => {
     return serialManager.listPorts();
   });
 
-  ipcMain.handle("serial:open", async (_event, { port, baudRate, enableModemMode }) => {
-    return serialManager.openPort(port, baudRate, enableModemMode);
+  ipcMain.handle("serial:open", async (_event, { port, baudRate, enableModemMode, signals }) => {
+    return serialManager.openPort(port, baudRate, enableModemMode, signals);
   });
 
   ipcMain.handle("serial:close", async () => {
@@ -174,6 +174,19 @@ app.whenReady().then(() => {
 
   ipcMain.handle("serial:status", async () => {
     return serialManager.getStatus();
+  });
+
+  ipcMain.handle("serial:set-signals", async (_event, signals) => {
+    return serialManager.setSignals(signals);
+  });
+
+  ipcMain.handle("serial:start-baud-scan", async (_event, { port, signals }) => {
+    return serialManager.scanBaudRates(port, signals);
+  });
+
+  ipcMain.handle("serial:stop-baud-scan", async () => {
+    serialManager.stopBaudScan();
+    return { success: true };
   });
 
   ipcMain.handle("serial:trigger-mock", async (_event, sampleType) => {
