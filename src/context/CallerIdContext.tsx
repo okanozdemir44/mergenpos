@@ -479,67 +479,102 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined" || !window.desktopAPI?.serial) return;
 
     const desktop = window.desktopAPI;
+    const cleanups: Array<() => void> = [];
 
-    // 1. Ham chunk verisi aboneliği: Hiçbir tampon beklemeden ms zaman damgası, HEX ve ASCII ile log'a yazılır
-    const unsubRaw = desktop.serial.onRaw((raw) => {
-      addLog(`[RAW ${raw.len}B] HEX: ${raw.hex} | ASCII: ${raw.ascii}`, "raw", raw.timestamp);
-    });
-
-    // 2. Satır tamamlanınca çözülen satır verisi
-    const unsubData = desktop.serial.onData(({ escaped }) => {
-      addLog(`[SATIR] ${escaped}`, "info");
-    });
-
-    // 3. CTS, DSR, CD, RI sinyal pin aboneliği
-    const unsubSignals = desktop.serial.onSignals((sig) => {
-      setSignals(sig);
-    });
-
-    // 4. Doğrudan masaüstü kabuğunun ürettiği ayrıntılı sistem ve port logları (orijinal stack & hatalar)
-    const unsubLog = desktop.serial.onLog?.((log) => {
-      addLog(log.text, log.type);
-    });
-
-    // 5. Durum aboneliği
-    const unsubStatus = desktop.serial.onStatus((status) => {
-      setSerialStatus(status);
-      if (status.error && !desktop.serial.onLog) {
-        addLog(`[PORT HATA] ${status.error}`, "error");
-      } else if (status.isOpen) {
-        addLog(`[PORT BAĞLANDI] ${status.port} (${status.baudRate} baud)`, "info");
-      } else if (!status.isOpen && !status.reconnecting) {
-        addLog(`[PORT KAPANDI] Seri port bağlantısı kapalı`, "warn");
+    try {
+      // 1. Ham chunk verisi aboneliği (yalnızca yeni desktop kabuklarında varsa)
+      if (typeof desktop.serial?.onRaw === "function") {
+        const unsub = desktop.serial.onRaw((raw: any) => {
+          if (raw) {
+            addLog(`[RAW ${raw.len ?? 0}B] HEX: ${raw.hex ?? ""} | ASCII: ${raw.ascii ?? ""}`, "raw", raw.timestamp);
+          }
+        });
+        if (typeof unsub === "function") cleanups.push(unsub);
       }
-    });
 
-    // İlk açılışta mevcut durumu da sorgula
-    desktop.serial.status().then((st) => setSerialStatus(st)).catch(() => {});
+      // 2. Satır tamamlanınca çözülen satır verisi
+      if (typeof desktop.serial?.onData === "function") {
+        const unsub = desktop.serial.onData((data: any) => {
+          const text = data?.escaped ?? data?.text ?? (typeof data === "string" ? data : "");
+          if (text) addLog(`[SATIR] ${text}`, "info");
+        });
+        if (typeof unsub === "function") cleanups.push(unsub);
+      }
 
-    // 6. Çağrı yakalama aboneliği (kabuk tarafından ayıklanan numara)
-    const unsubCall = desktop.onIncomingCall((phone) => {
-      addLog(`[ÇAĞRI AYIKLANDI] Tel: ${phone}`, "call");
-      incomingCallRef.current(phone);
-    });
+      // 3. CTS, DSR, CD, RI sinyal pin aboneliği
+      if (typeof desktop.serial?.onSignals === "function") {
+        const unsub = desktop.serial.onSignals((sig: any) => {
+          if (sig) setSignals(sig);
+        });
+        if (typeof unsub === "function") cleanups.push(unsub);
+      }
 
-    // 7. Lisansa ve Toggle durumuna bağlı olarak portu aç/kapat (Lisans yoksa veya toggle kapalıysa port kesinlikle açılmaz)
-    if (hasLicense && enabled && comPort) {
-      desktop.serial.open(comPort, baudRate, modemMode, { dtr, rts }).then((res) => {
-        if (!res.success && res.error) {
-          addLog(`[BAĞLANTI BAŞARISIZ] ${res.error}`, "error");
-        }
-      });
-    } else {
-      desktop.serial.close().catch(() => {});
+      // 4. Doğrudan masaüstü kabuğunun ürettiği ayrıntılı sistem ve port logları
+      if (typeof desktop.serial?.onLog === "function") {
+        const unsub = desktop.serial.onLog((log: any) => {
+          if (log?.text) addLog(log.text, log.type || "info");
+        });
+        if (typeof unsub === "function") cleanups.push(unsub);
+      }
+
+      // 5. Durum aboneliği
+      if (typeof desktop.serial?.onStatus === "function") {
+        const unsub = desktop.serial.onStatus((status: any) => {
+          if (status) {
+            setSerialStatus(status);
+            if (status.error && typeof desktop.serial?.onLog !== "function") {
+              addLog(`[PORT HATA] ${status.error}`, "error");
+            } else if (status.isOpen) {
+              addLog(`[PORT BAĞLANDI] ${status.port} (${status.baudRate} baud)`, "info");
+            } else if (!status.isOpen && !status.reconnecting) {
+              addLog(`[PORT KAPANDI] Seri port bağlantısı kapalı`, "warn");
+            }
+          }
+        });
+        if (typeof unsub === "function") cleanups.push(unsub);
+      }
+
+      // İlk açılışta mevcut durumu da sorgula
+      if (typeof desktop.serial?.status === "function") {
+        desktop.serial.status().then((st: any) => {
+          if (st) setSerialStatus(st);
+        }).catch(() => {});
+      }
+
+      // 6. Çağrı yakalama aboneliği (kabuk tarafından ayıklanan numara)
+      if (typeof desktop.onIncomingCall === "function") {
+        const unsub = desktop.onIncomingCall((phone: string) => {
+          if (phone) {
+            addLog(`[ÇAĞRI AYIKLANDI] Tel: ${phone}`, "call");
+            incomingCallRef.current(phone);
+          }
+        });
+        if (typeof unsub === "function") cleanups.push(unsub);
+      }
+
+      // 7. Lisansa ve Toggle durumuna bağlı olarak portu aç/kapat
+      if (hasLicense && enabled && comPort && typeof desktop.serial?.open === "function") {
+        desktop.serial.open(comPort, baudRate, modemMode, { dtr, rts }).then((res: any) => {
+          if (res && !res.success && res.error) {
+            addLog(`[BAĞLANTI BAŞARISIZ] ${res.error}`, "error");
+          }
+        }).catch(() => {});
+      } else if (typeof desktop.serial?.close === "function") {
+        desktop.serial.close().catch(() => {});
+      }
+    } catch (effectErr) {
+      console.error("[CallerIdProvider] Seri port dinleyicisi başlatılırken hata:", effectErr);
     }
 
     return () => {
-      unsubRaw();
-      unsubData();
-      unsubSignals();
-      unsubLog?.();
-      unsubStatus();
-      unsubCall();
-      desktop.serial.close().catch(() => {});
+      cleanups.forEach((cleanup) => {
+        try {
+          cleanup();
+        } catch {}
+      });
+      try {
+        desktop.serial?.close?.().catch?.(() => {});
+      } catch {}
     };
   }, [hasLicense, enabled, comPort, baudRate, modemMode, dtr, rts, addLog]);
 
@@ -548,12 +583,16 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     if (!comPort) return;
     addLog(`[MANUEL YENİDEN BAĞLAN] Port: ${comPort}, Baud: ${baudRate}, DTR: ${dtr}, RTS: ${rts}`, "info");
     try {
-      await window.desktopAPI.serial.close();
-      const res = await window.desktopAPI.serial.open(comPort, baudRate, modemMode, { dtr, rts });
-      if (!res.success && res.error) {
-        addLog(`[BAĞLANTI BAŞARISIZ] ${res.error}`, "error");
-      } else {
-        addLog(`[BAĞLANTI BAŞARILI] Port ${comPort} açıldı`, "info");
+      if (typeof window.desktopAPI.serial.close === "function") {
+        await window.desktopAPI.serial.close();
+      }
+      if (typeof window.desktopAPI.serial.open === "function") {
+        const res = await window.desktopAPI.serial.open(comPort, baudRate, modemMode, { dtr, rts });
+        if (res && !res.success && res.error) {
+          addLog(`[BAĞLANTI BAŞARISIZ] ${res.error}`, "error");
+        } else {
+          addLog(`[BAĞLANTI BAŞARILI] Port ${comPort} açıldı`, "info");
+        }
       }
     } catch (err: any) {
       addLog(`[BAĞLANTI HATASI] ${err?.message || String(err)}`, "error");
