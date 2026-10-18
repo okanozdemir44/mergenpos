@@ -168,10 +168,11 @@ export function ReportsPanel() {
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("");
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
-  // Chart view modes
   const [trendMetric, setTrendMetric] = useState<"revenue" | "count">("revenue");
   const [distributionMode, setDistributionMode] = useState<"payment" | "orderType">("payment");
   const [isMounted, setIsMounted] = useState(false);
+  const [isPrintingZReport, setIsPrintingZReport] = useState(false);
+  const [zReportMessage, setZReportMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -418,6 +419,79 @@ export function ReportsPanel() {
 
   const maxTopQty = topProducts.length > 0 ? Math.max(...topProducts.map((p) => p.quantity)) : 1;
 
+  const handlePrintZReport = async () => {
+    setIsPrintingZReport(true);
+    setZReportMessage(null);
+    try {
+      const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
+      if (!kasaPrinter) {
+        setZReportMessage({
+          type: "error",
+          text: "Kasa yazıcısı seçilmemiş. Lütfen sol menüden 'Yazıcılar' sekmesine gidip bir Kasa yazıcısı seçin.",
+        });
+        setIsPrintingZReport(false);
+        return;
+      }
+
+      const { printReceiptHtml, getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
+      const { generateZReportHtml } = await import("@/lib/receipt-generators");
+      const settings = await getOrFetchReceiptSettings(staff?.restaurant_id);
+
+      const branchName = staff?.restaurant_id === "8c3d0702-06fd-43f1-809a-062153bf7486" ? "Öküz Burger" : "Mergen POS";
+
+      const zHtml = generateZReportHtml(
+        {
+          branchName,
+          dateStr: new Date().toLocaleString("tr-TR", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          periodLabel,
+          cashierName: staff?.name,
+          orderCount,
+          totalRevenue: revenue,
+          avgBasket,
+          payments: paymentDonutData.map((p) => ({
+            label: p.name,
+            amount: p.value,
+            count: p.count || 0,
+          })),
+          orderTypes: orderTypeDonutData.map((o) => ({
+            label: o.name,
+            amount: o.value,
+            count: o.count || 0,
+          })),
+          topProducts: topProducts.map((tp) => ({
+            name: tp.name,
+            quantity: tp.quantity,
+            revenue: tp.revenue,
+          })),
+        },
+        settings
+      );
+
+      await printReceiptHtml(kasaPrinter, zHtml, {
+        paperWidthMm: settings.cashier.paperWidthMm,
+      });
+
+      setZReportMessage({
+        type: "success",
+        text: `Gün sonu fişi "${kasaPrinter}" yazıcısına gönderildi.`,
+      });
+    } catch (err: any) {
+      console.error("Gün sonu fişi yazdırma hatası:", err);
+      setZReportMessage({
+        type: "error",
+        text: `Yazdırma başarısız: ${err?.message || "Yazıcı yanıt vermedi"}`,
+      });
+    } finally {
+      setIsPrintingZReport(false);
+    }
+  };
+
   return (
     <div>
       {/* ── Header ── */}
@@ -440,6 +514,28 @@ export function ReportsPanel() {
           )}
           <button
             type="button"
+            className="report-refresh-btn"
+            style={{
+              background: "#059669",
+              color: "#fff",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              padding: "0.5rem 0.9rem",
+              borderRadius: "8px",
+              cursor: isPrintingZReport ? "not-allowed" : "pointer",
+              fontWeight: 700,
+            }}
+            onClick={handlePrintZReport}
+            disabled={isPrintingZReport || loading}
+            title="Gün Sonu / Z-Raporunu termal fiş olarak yazdır"
+          >
+            <span>🧾</span>
+            <span>{isPrintingZReport ? "Yazdırılıyor..." : "Gün Sonu Fişi Yazdır"}</span>
+          </button>
+          <button
+            type="button"
             className={`report-refresh-btn ${refreshing ? "report-refresh-btn--loading" : ""}`}
             onClick={() => void fetchReportData(true)}
             disabled={refreshing || loading}
@@ -450,6 +546,32 @@ export function ReportsPanel() {
           </button>
         </div>
       </header>
+
+      {zReportMessage && (
+        <div
+          style={{
+            margin: "0.75rem 0 1rem 0",
+            padding: "0.65rem 1rem",
+            borderRadius: "8px",
+            background: zReportMessage.type === "success" ? "#ecfdf5" : "#fef2f2",
+            border: `1px solid ${zReportMessage.type === "success" ? "#a7f3d0" : "#fecaca"}`,
+            color: zReportMessage.type === "success" ? "#065f46" : "#991b1b",
+            fontSize: "0.85rem",
+            fontWeight: 600,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>{zReportMessage.text}</span>
+          <button
+            onClick={() => setZReportMessage(null)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 700 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ── Time Filter Tabs ── */}
       <div className="order-tabs" style={{ marginBottom: rangeKey === "custom" ? "0.65rem" : "1.25rem", borderRadius: "12px", border: "1px solid var(--pos-line)" }}>

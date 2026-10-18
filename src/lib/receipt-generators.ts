@@ -587,3 +587,200 @@ export function generateKitchenReceiptHtml(
     </html>
   `;
 }
+
+export type ZReportData = {
+  branchName: string;
+  dateStr: string;
+  periodLabel: string;
+  cashierName?: string;
+  orderCount: number;
+  totalRevenue: number;
+  avgBasket: number;
+  payments: {
+    label: string;
+    amount: number;
+    count: number;
+  }[];
+  orderTypes: {
+    label: string;
+    amount: number;
+    count: number;
+  }[];
+  topProducts?: {
+    name: string;
+    quantity: number;
+    revenue: number;
+  }[];
+};
+
+/**
+ * Gün Sonu / Z-Raporu Termal Fiş Şablonu
+ */
+export function generateZReportHtml(
+  data: ZReportData,
+  settings?: ReceiptSettings
+): string {
+  const cfg = settings ? sanitizeReceiptSettings(settings).cashier : sanitizeReceiptSettings({}).cashier;
+  const contentWidthMm = cfg.layout.autoContentWidth
+    ? (cfg.paperWidthMm === 58 ? 54 : 76)
+    : cfg.layout.contentWidthMm;
+  const paperWidthCss = `${contentWidthMm}mm`;
+  const bodyMarginCss = cfg.layout.centerContent ? "0 auto" : "0";
+  const containerPaddingCss = `2mm ${cfg.layout.paddingRightMm}mm 8mm ${cfg.layout.paddingLeftMm}mm`;
+
+  const paymentsHtml = (data.payments || [])
+    .filter((p) => p.amount > 0 || p.count > 0)
+    .map(
+      (p) => `
+      <div class="receipt-row" style="margin-bottom: 3px;">
+        <span>${escapeHtml(p.label)} (${p.count})</span>
+        <strong>₺ ${formatTRY(p.amount)}</strong>
+      </div>
+    `
+    )
+    .join("");
+
+  const orderTypesHtml = (data.orderTypes || [])
+    .filter((t) => t.amount > 0 || t.count > 0)
+    .map(
+      (t) => `
+      <div class="receipt-row" style="margin-bottom: 3px;">
+        <span>${escapeHtml(t.label)} (${t.count})</span>
+        <span>₺ ${formatTRY(t.amount)}</span>
+      </div>
+    `
+    )
+    .join("");
+
+  const topProductsHtml = (data.topProducts || [])
+    .slice(0, 5)
+    .map(
+      (p, i) => `
+      <div class="receipt-row" style="margin-bottom: 2px;">
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 65%;">${i + 1}. ${escapeHtml(p.name)}</span>
+        <span>${p.quantity} ad. (₺${formatTRY(p.revenue)})</span>
+      </div>
+    `
+    )
+    .join("");
+
+  const css = `
+    @page { margin: 0; }
+    body {
+      font-family: ${cfg.fontFamily};
+      font-size: 11.5px;
+      line-height: 1.35;
+      color: #000;
+      background: #fff;
+      margin: ${bodyMarginCss};
+      padding: 0;
+      width: ${paperWidthCss};
+    }
+    .receipt-container {
+      padding: ${containerPaddingCss};
+    }
+    .receipt-header {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .receipt-brand {
+      font-size: 16px;
+      font-weight: 900;
+    }
+    .receipt-title {
+      font-size: 13px;
+      font-weight: 800;
+      margin-top: 4px;
+      padding: 3px 0;
+      border-top: 1px dashed #000;
+      border-bottom: 1px dashed #000;
+    }
+    .receipt-divider { border-top: 1px dashed #000; margin: 6px 0; }
+    .receipt-double-divider { border-top: 2px solid #000; margin: 6px 0; }
+    .receipt-info {
+      font-size: 10px;
+      line-height: 1.35;
+      margin-bottom: 6px;
+    }
+    .receipt-row { display: flex; justify-content: space-between; }
+    .section-title {
+      font-size: 11px;
+      font-weight: 900;
+      margin: 6px 0 4px 0;
+      text-transform: uppercase;
+    }
+    .receipt-summary-total {
+      font-size: 15px;
+      font-weight: 900;
+      display: flex;
+      justify-content: space-between;
+      margin: 4px 0;
+    }
+    .receipt-footer {
+      text-align: center;
+      margin-top: 12px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+  `;
+
+  return `
+    <html>
+      <head><meta charset="utf-8"/><style>${css}</style></head>
+      <body>
+        <div class="receipt-container">
+          <div class="receipt-header">
+            <div class="receipt-brand">${escapeHtml(data.branchName || "MERGEN POS")}</div>
+            <div class="receipt-title">*** GÜN SONU / Z-RAPORU ***</div>
+          </div>
+
+          <div class="receipt-info">
+            <div class="receipt-row"><span>Tarih:</span><span>${escapeHtml(data.dateStr)}</span></div>
+            <div class="receipt-row"><span>Dönem:</span><span>${escapeHtml(data.periodLabel)}</span></div>
+            ${data.cashierName ? `<div class="receipt-row"><span>Kullanıcı:</span><span>${escapeHtml(data.cashierName)}</span></div>` : ""}
+          </div>
+
+          <div class="receipt-double-divider"></div>
+
+          <div class="receipt-summary-total">
+            <span>TOPLAM CİRO</span>
+            <span>₺ ${formatTRY(data.totalRevenue)}</span>
+          </div>
+          <div class="receipt-row" style="font-size: 11px; font-weight: 700; margin-bottom: 2px;">
+            <span>Toplam Adisyon:</span>
+            <span>${data.orderCount} Adet</span>
+          </div>
+          <div class="receipt-row" style="font-size: 11px; font-weight: 700;">
+            <span>Ortalama Sepet:</span>
+            <span>₺ ${formatTRY(data.avgBasket)}</span>
+          </div>
+
+          <div class="receipt-divider"></div>
+          <div class="section-title">KASA / ÖDEME DAĞILIMI</div>
+          ${paymentsHtml || '<div style="font-size:10px;">Kayıtlı ödeme yok</div>'}
+
+          <div class="receipt-divider"></div>
+          <div class="section-title">SİPARİŞ KANALLARI</div>
+          ${orderTypesHtml || '<div style="font-size:10px;">Kayıtlı kanal verisi yok</div>'}
+
+          ${
+            topProductsHtml
+              ? `
+          <div class="receipt-divider"></div>
+          <div class="section-title">EN ÇOK SATAN İLK 5 ÜRÜN</div>
+          ${topProductsHtml}
+          `
+              : ""
+          }
+
+          <div class="receipt-divider"></div>
+          <div class="receipt-footer">
+            <div style="font-size: 10px; font-weight: normal; margin-bottom: 4px;">MALİ DEĞERİ YOKTUR · BİLGİ AMAÇLIDIR</div>
+            <div>MERGEN TEKNOLOJİ</div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
