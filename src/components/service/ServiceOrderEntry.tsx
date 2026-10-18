@@ -516,12 +516,15 @@ export function ServiceOrderEntry() {
 
     if (kasaPrinter || mutfakPrinter) {
       try {
+        const { getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
+        const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
+
         if (kasaPrinter) {
-          const kasaHtml = generateCashierReceiptHtml(receipt);
+          const kasaHtml = generateCashierReceiptHtml(receipt, receiptSettings);
           await printReceiptHtml(kasaPrinter, kasaHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
         }
         if (mutfakPrinter) {
-          const mutfakHtml = generateKitchenReceiptHtml(receipt);
+          const mutfakHtml = generateKitchenReceiptHtml(receipt, receiptSettings);
           await printReceiptHtml(mutfakPrinter, mutfakHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
         }
         router.push(`/service?tab=${orderType}`);

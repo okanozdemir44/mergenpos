@@ -67,6 +67,16 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
     loadPrinters(desktopAvailable);
   }, []);
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   async function loadPrinters(desktopAvailable?: boolean) {
     setLoading(true);
     setError(null);
@@ -207,11 +217,66 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
   const mutfakStatus = getPrinterStatus(mutfakPrinter);
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content" style={{ maxWidth: "560px", padding: "1.5rem", borderRadius: "12px", background: "#fff" }}>
-        <h2 style={{ marginBottom: "1rem", fontSize: "1.2rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span>🖨️</span> Yazıcı Ayarları {isDesktop ? "(Masaüstü Kabuğu)" : "(QZ Tray)"}
-        </h2>
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: "580px",
+          width: "100%",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          padding: "1.5rem",
+          borderRadius: "14px",
+          background: "#fff",
+          boxShadow: "0 20px 30px -5px rgba(0, 0, 0, 0.25)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "1.2rem",
+            paddingBottom: "0.6rem",
+            borderBottom: "1px solid #e2e8f0",
+          }}
+        >
+          <h2
+            style={{
+              margin: 0,
+              fontSize: "1.25rem",
+              fontWeight: "bold",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              color: "#0f172a",
+            }}
+          >
+            <span>🖨️</span> Yazıcı Ayarları {isDesktop ? "(Masaüstü Kabuğu)" : "(QZ Tray)"}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Kapat"
+            title="Kapat (Esc)"
+            style={{
+              background: "#f1f5f9",
+              border: "1px solid #cbd5e1",
+              borderRadius: "8px",
+              width: "34px",
+              height: "34px",
+              display: "grid",
+              placeItems: "center",
+              fontSize: "1.25rem",
+              cursor: "pointer",
+              color: "#475569",
+              transition: "all 0.15s ease",
+            }}
+          >
+            ✕
+          </button>
+        </div>
 
         {error && (
           <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.88rem" }}>

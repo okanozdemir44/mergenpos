@@ -1,6 +1,6 @@
 import { BrowserWindow } from "electron";
 import { SerialPort } from "serialport";
-import { CallerIdStreamBuffer } from "../callerIdParser";
+import { CallerIdStreamBuffer, extractCidShowPhone } from "../callerIdParser";
 import {
   BaudScanItem,
   DesktopConfig,
@@ -35,6 +35,11 @@ export class SerialManager {
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private maxReconnectAttempts: number = 3;
+
+  // CidShow C812A / Ham paket kayan tamponu (parçalı paket desteği)
+  private rawRollingBuffer: string = "";
+  private rawRollingHex: string = "";
+  private rawRollingTimer: NodeJS.Timeout | null = null;
 
   // Sinyal izleme (CTS, DSR, CD, RI)
   private signalPollTimer: NodeJS.Timeout | null = null;
@@ -144,7 +149,7 @@ export class SerialManager {
       return { success: true };
     }
 
-    // Açık eski port varsa önce kapat
+    // Açık eski port ve dinleyiciler varsa önce tamamen temizle ve kapat
     await this.closePort();
 
     this.shouldBeOpen = true;
@@ -153,8 +158,29 @@ export class SerialManager {
     this.currentModemMode = enableModemMode;
     this.streamBuffer.reset();
 
+    // Varsa önceki zamanlayıcıları ve sinyal yoklamasını durdur
+    this.stopSignalPolling();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+
     return new Promise((resolve) => {
       try {
+        // Eski port referansı kaldıysa dinleyicilerini kaldır ve sıfırla
+        if (this.currentPort) {
+          try {
+            this.currentPort.removeAllListeners();
+            if (this.currentPort.isOpen) {
+              this.currentPort.close();
+            }
+          } catch (cleanErr: any) {
+            console.warn("[SerialManager] Eski port ön temizleme uyarısı:", cleanErr);
+          }
+          this.currentPort = null;
+        }
+
         const port = new SerialPort({
           path: cleanPort,
           baudRate,
@@ -164,67 +190,108 @@ export class SerialManager {
         this.currentPort = port;
 
         port.on("data", (chunk: Buffer) => {
-          // 1. Ham veriyi tampon ya da parser beklemeden ms zaman damgası, HEX ve ASCII ile log'a gönder
-          const now = new Date();
-          const ts =
-            now.toTimeString().split(" ")[0] +
-            "." +
-            String(now.getMilliseconds()).padStart(3, "0");
-          const hex = chunk.toString("hex").toUpperCase().match(/../g)?.join(" ") || "";
-          let ascii = "";
-          for (let i = 0; i < chunk.length; i++) {
-            const b = chunk[i];
-            ascii += b >= 32 && b <= 126 ? String.fromCharCode(b) : ".";
+          try {
+            const now = new Date();
+            const ts =
+              now.toTimeString().split(" ")[0] +
+              "." +
+              String(now.getMilliseconds()).padStart(3, "0");
+
+            const hexFormatted = chunk.toString("hex").toUpperCase().match(/../g)?.join(" ") || "";
+            const rawHexStr = chunk.toString("hex").toUpperCase();
+            const rawText = chunk.toString("latin1");
+
+            let ascii = "";
+            for (let i = 0; i < chunk.length; i++) {
+              const b = chunk[i];
+              ascii += b >= 32 && b <= 126 ? String.fromCharCode(b) : ".";
+            }
+
+            // 1. Ham veriyi hiçbir parser beklemeden doğrudan siyah log kutusuna ve konsola yazdır
+            this.emitLog(`[HAM CHUNK ${chunk.length}B] HEX: ${hexFormatted} | ASCII: ${ascii}`, "raw");
+            console.log(`\x1b[36m[Serial RAW ${cleanPort}]\x1b[0m HEX: ${hexFormatted} | ASCII: ${ascii}`);
+
+            this.emitRawChunk({
+              timestamp: ts,
+              hex: hexFormatted,
+              ascii,
+              len: chunk.length,
+            });
+
+            // 2. CidShow C812A / Esnek Regex ile Numara Yakalama (05XXXXXXXXX veya 5XXXXXXXXX)
+            // Parçalı veya gecikmeli paketleri yakalayabilmek için son baytları kayan tamponda tutuyoruz
+            this.rawRollingBuffer = (this.rawRollingBuffer + rawText).slice(-256);
+            this.rawRollingHex = (this.rawRollingHex + rawHexStr).slice(-512);
+
+            if (this.rawRollingTimer) clearTimeout(this.rawRollingTimer);
+            this.rawRollingTimer = setTimeout(() => {
+              this.rawRollingBuffer = "";
+              this.rawRollingHex = "";
+            }, 3000);
+
+            // Hem ham metin hem de hex veri üzerinde regex ara
+            const detectedPhone =
+              extractCidShowPhone(this.rawRollingBuffer) ||
+              extractCidShowPhone(this.rawRollingHex) ||
+              extractCidShowPhone(rawText);
+
+            if (detectedPhone) {
+              this.emitLog(`[CIDSHOW ÇAĞRI YAKALANDI] Tel: ${detectedPhone}`, "call");
+              console.log(`\x1b[32m[SerialManager CIDSHOW CALL]\x1b[0m ${detectedPhone}`);
+              this.handleIncomingCall(detectedPhone);
+              this.rawRollingBuffer = "";
+              this.rawRollingHex = "";
+            }
+
+            // 3. Klasik satır tamponuna da aktar (NMBR=, Bell202 vb. paralel uyumluluk için)
+            this.streamBuffer.feed(rawText);
+          } catch (dataErr: any) {
+            const rawMsg = dataErr?.message || String(dataErr);
+            console.error(`\x1b[31m[SerialManager DATA ERROR ${cleanPort}]\x1b[0m`, dataErr);
+            this.emitLog(`[VERİ İŞLEME HATA] ${rawMsg}`, "error");
           }
-
-          this.emitRawChunk({
-            timestamp: ts,
-            hex,
-            ascii,
-            len: chunk.length,
-          });
-
-          // 2. Parser tamponuna latin1 olarak aktar
-          const text = chunk.toString("latin1");
-          this.streamBuffer.feed(text);
         });
 
-        port.on("error", (err: Error) => {
-          const friendlyError = this.translateError(cleanPort, err);
-          console.error(`[SerialManager] Hata (${cleanPort}):`, friendlyError);
-          this.updateStatus({ error: friendlyError, isOpen: false });
-          this.emitLog(`[PORT HATA] ${friendlyError}`, "error");
-
-          // Beklenmedik bağlantı kopmalarında yeniden bağlanmayı dene
-          if (this.shouldBeOpen && !this.reconnectTimer && !this.isBaudScanning) {
-            this.scheduleReconnect();
-          }
+        port.on("error", (err: any) => {
+          const rawMsg = err?.message || String(err);
+          const rawStack = err?.stack || "";
+          console.error(`\x1b[31m[SerialManager PORT ERROR ${cleanPort}]\x1b[0m`, err);
+          this.shouldBeOpen = false;
+          this.updateStatus({ error: rawMsg, isOpen: false, reconnecting: false });
+          this.emitLog(
+            `[PORT HATA] ${cleanPort} -> ${rawMsg}${rawStack ? `\nStack: ${rawStack}` : ""}`,
+            "error"
+          );
+          // Auto-reconnect devre dışı bırakıldı - hata alınca port kendi kendine tekrar bağlanmaya çalışmaz.
         });
 
         port.on("close", () => {
           console.log(`[SerialManager] Port kapandı: ${cleanPort}`);
           this.stopSignalPolling();
-          const wasOpen = this.status.isOpen;
-          this.updateStatus({ isOpen: false });
+          this.shouldBeOpen = false;
+          this.updateStatus({ isOpen: false, reconnecting: false });
           this.emitLog(`[PORT KAPANDI] ${cleanPort}`, "warn");
-
-          if (this.shouldBeOpen && wasOpen && !this.reconnectTimer && !this.isBaudScanning) {
-            this.scheduleReconnect();
-          }
+          // Auto-reconnect devre dışı bırakıldı.
         });
 
         port.open(async (err) => {
           if (err) {
-            const friendly = this.translateError(cleanPort, err);
-            console.warn(`[SerialManager] Port açılamadı (${cleanPort}):`, friendly);
+            const rawMsg = err.message || String(err);
+            const rawStack = err.stack || "";
+            console.error(`\x1b[31m[SerialManager PORT OPEN ERROR ${cleanPort}]\x1b[0m`, err);
+            this.shouldBeOpen = false;
             this.updateStatus({
               isOpen: false,
               port: cleanPort,
               baudRate,
-              error: friendly,
+              error: rawMsg,
+              reconnecting: false,
             });
-            this.emitLog(`[PORT HATA] ${friendly}`, "error");
-            resolve({ success: false, error: friendly });
+            this.emitLog(
+              `[PORT AÇILIŞ HATASI] ${cleanPort} -> ${rawMsg}${rawStack ? `\nStack: ${rawStack}` : ""}`,
+              "error"
+            );
+            resolve({ success: false, error: rawMsg });
             return;
           }
 
@@ -261,20 +328,33 @@ export class SerialManager {
           resolve({ success: true });
         });
       } catch (err: any) {
-        const friendly = this.translateError(cleanPort, err);
-        this.updateStatus({ error: friendly, isOpen: false });
-        this.emitLog(`[PORT HATA] ${friendly}`, "error");
-        resolve({ success: false, error: friendly });
+        const rawMsg = err?.message || String(err);
+        const rawStack = err?.stack || "";
+        console.error(`\x1b[31m[SerialManager OPEN EXCEPTION ${cleanPort}]\x1b[0m`, err);
+        this.shouldBeOpen = false;
+        this.updateStatus({ error: rawMsg, isOpen: false, reconnecting: false });
+        this.emitLog(
+          `[PORT İSTİSNA HATASI] ${cleanPort} -> ${rawMsg}${rawStack ? `\nStack: ${rawStack}` : ""}`,
+          "error"
+        );
+        resolve({ success: false, error: rawMsg });
       }
     });
   }
 
   /**
-   * Açık portu kapatır.
+   * Açık portu kapatır ve tüm dinleyicileri temizler.
    */
   public async closePort(): Promise<{ success: boolean; error?: string }> {
     this.shouldBeOpen = false;
     this.stopSignalPolling();
+
+    this.rawRollingBuffer = "";
+    this.rawRollingHex = "";
+    if (this.rawRollingTimer) {
+      clearTimeout(this.rawRollingTimer);
+      this.rawRollingTimer = null;
+    }
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -283,7 +363,7 @@ export class SerialManager {
     this.reconnectAttempts = 0;
 
     if (!this.currentPort) {
-      this.updateStatus({ isOpen: false, error: null });
+      this.updateStatus({ isOpen: false, error: null, reconnecting: false });
       return { success: true };
     }
 
@@ -292,16 +372,24 @@ export class SerialManager {
       const portName = this.currentPortName;
       this.currentPort = null;
 
+      try {
+        port?.removeAllListeners();
+      } catch (listenerErr) {
+        console.warn("[SerialManager] Dinleyiciler kaldırılırken uyarı:", listenerErr);
+      }
+
       if (!port || !port.isOpen) {
-        this.updateStatus({ isOpen: false, error: null });
+        this.updateStatus({ isOpen: false, error: null, reconnecting: false });
         resolve({ success: true });
         return;
       }
 
       port.close((err) => {
-        this.updateStatus({ isOpen: false, error: null });
+        this.updateStatus({ isOpen: false, error: null, reconnecting: false });
         if (err) {
-          console.warn("[SerialManager] Port kapatılırken uyarı:", err.message);
+          const rawMsg = err.message || String(err);
+          console.error(`\x1b[31m[SerialManager PORT CLOSE ERROR ${portName}]\x1b[0m`, err);
+          this.emitLog(`[PORT KAPATMA HATASI] ${rawMsg}`, "error");
         }
         if (portName) {
           this.emitLog(`[PORT KAPANDI] ${portName}`, "warn");
@@ -367,7 +455,11 @@ export class SerialManager {
       }
 
       this.currentPort.get((err, status) => {
-        if (err || !status) return;
+        if (err) {
+          console.warn("[SerialManager] Sinyal pin okuma uyarısı (GetCommModemStatus):", err.message || err);
+          return;
+        }
+        if (!status) return;
 
         const currentSignals: SerialSignals = {
           cts: Boolean(status.cts),
@@ -693,7 +785,7 @@ export class SerialManager {
   /**
    * Log mesajını doğrudan web log listesine ekler.
    */
-  private emitLog(text: string, type: "info" | "call" | "warn" | "error" = "info") {
+  private emitLog(text: string, type: "info" | "call" | "warn" | "error" | "raw" = "info") {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send("serial:log", { text, type });
     }
@@ -728,44 +820,24 @@ export class SerialManager {
   }
 
   /**
-   * Cihaz çıkarılınca veya bağlantı kopunca artan süreyle 3 kez yeniden bağlanmayı dener.
-   * 3 denemeden sonra otomatik deneme durur; kullanıcı "Yeniden Bağlan" butonunu kullanabilir.
+   * Otomatik yeniden bağlanma döngüsü kullanıcının talebi üzerine TAMAMEN DEVRE DIŞI BIRAKILDI.
+   * Port hataya düşse veya kapansa bile kendi kendine arka planda yeniden bağlanmaya çalışmaz.
    */
   private scheduleReconnect() {
-    if (!this.shouldBeOpen || !this.currentPortName) return;
-
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      const err = `${this.currentPortName} bağlantısı koptu. ${this.maxReconnectAttempts} deneme yapıldı ve durduruldu. Cihazı kontrol edip 'Yeniden Bağlan' butonuna tıklayın.`;
-      console.warn(`[SerialManager] ${err}`);
-      this.updateStatus({ error: err, reconnecting: false });
-      return;
-    }
-
-    this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 8000);
-
-    console.log(
-      `[SerialManager] Yeniden bağlanma denemesi ${this.reconnectAttempts}/${this.maxReconnectAttempts} (${delay}ms sonra)...`
-    );
-
-    this.updateStatus({
-      reconnecting: true,
-      error: `Cihaz bağlantısı koptu. Yeniden bağlanılıyor (${this.reconnectAttempts}/${this.maxReconnectAttempts})…`,
-    });
-
-    this.reconnectTimer = setTimeout(async () => {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
-      if (this.shouldBeOpen && this.currentPortName && this.currentBaudRate) {
-        await this.openPort(this.currentPortName, this.currentBaudRate, this.currentModemMode);
-      }
-    }, delay);
+    }
+    this.reconnectAttempts = 0;
+    // Otomatik döngü çalıştırma - no-op
   }
 
   /**
-   * Sistem hatalarını anlaşılır Türkçe mesajlara çevirir.
+   * Sistem hatalarını anlaşılır Türkçe mesajlara çevirir (Orijinal hata bilgisini korur).
    */
   private translateError(port: string, err: any): string {
-    const msg = (err?.message || String(err)).toLowerCase();
+    const rawMsg = err?.message || String(err);
+    const msg = rawMsg.toLowerCase();
 
     if (
       msg.includes("access is denied") ||
@@ -773,14 +845,14 @@ export class SerialManager {
       msg.includes("eacces") ||
       msg.includes("permission denied")
     ) {
-      return `${port} portu başka bir program tarafından kullanılıyor (örn. Vega vb.). Lütfen portu kullanan diğer programı kapatıp tekrar deneyin.`;
+      return `${port} portu başka bir program tarafından kullanılıyor (örn. Vega vb.) [Detay: ${rawMsg}]`;
     }
 
     if (msg.includes("file not found") || msg.includes("cannot open")) {
-      return `${port} portu bulunamadı. Cihazın bilgisayara bağlı olduğundan ve sürücüsünün yüklü olduğundan emin olun.`;
+      return `${port} portu bulunamadı [Detay: ${rawMsg}]`;
     }
 
-    return `${port} bağlantı hatası: ${err?.message || "Bilinmeyen hata"}`;
+    return `${port} hatası: ${rawMsg}`;
   }
 
   /**

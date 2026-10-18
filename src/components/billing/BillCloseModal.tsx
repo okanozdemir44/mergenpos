@@ -5,7 +5,7 @@ import type { BillLine, PaymentMethod } from "@/types/pos";
 import { PAYMENT_METHOD_LABEL } from "@/types/pos";
 import { formatTry } from "@/lib/money";
 
-import { printReceiptHtml } from "@/lib/unified-printer";
+import { printReceiptHtml, getCachedReceiptSettings } from "@/lib/unified-printer";
 
 type Props = {
   restaurantName: string;
@@ -43,6 +43,10 @@ export function BillCloseModal({
 
   async function printInfoSlip() {
     const now = new Date();
+    const settings = getCachedReceiptSettings();
+    const paperWidthMm = settings.cashier.paperWidthMm;
+    const fontFamily = settings.cashier.fontFamily;
+
     const rows = lines
       .map(
         (l) =>
@@ -58,7 +62,8 @@ export function BillCloseModal({
     const html = `<!doctype html>
 <html><head><meta charset="utf-8"/><title>Bilgi Fişi</title>
 <style>
-  body{font-family:ui-monospace,Consolas,monospace;padding:8px;color:#111;margin:0;}
+  @page { margin: 0; }
+  body{font-family:${fontFamily};padding:8px;color:#111;margin:0;width:${paperWidthMm === 58 ? "54mm" : "76mm"};}
   h1{font-size:16px;margin:0 0 4px;text-align:center;}
   h2{font-size:13px;margin:0 0 8px;font-weight:600;text-align:center;}
   table{width:100%;border-collapse:collapse;font-size:12px}
@@ -79,7 +84,7 @@ export function BillCloseModal({
     const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
     if (kasaPrinter) {
       try {
-        await printReceiptHtml(kasaPrinter, html);
+        await printReceiptHtml(kasaPrinter, html, { paperWidthMm });
         return;
       } catch (err) {
         console.warn("Masaüstü/QZ bilgi fişi basılamadı, tarayıcı penceresine yönlendiriliyor:", err);

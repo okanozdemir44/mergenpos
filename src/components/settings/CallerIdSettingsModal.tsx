@@ -92,6 +92,16 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
     };
   }, [isDesktop]);
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const handleStartBaudScan = async () => {
     if (!isDesktop || !window.desktopAPI?.serial?.startBaudScan) return;
     if (!comPort) {
@@ -187,9 +197,10 @@ export default function CallerIdSettingsModal({ onClose }: CallerIdSettingsModal
   }
 
   return (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={onClose}>
       <div
         className="modal-content"
+        onClick={(e) => e.stopPropagation()}
         style={{
           maxWidth: "640px",
           width: "100%",

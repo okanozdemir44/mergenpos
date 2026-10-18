@@ -74,6 +74,13 @@ const desktopAPI: DesktopAPI = {
         ipcRenderer.removeListener("serial:status", handler);
       };
     },
+    onLog: (callback: (log: { text: string; type: "info" | "call" | "warn" | "error" | "raw" }) => void) => {
+      const handler = (_event: any, log: { text: string; type: "info" | "call" | "warn" | "error" | "raw" }) => callback(log);
+      ipcRenderer.on("serial:log", handler);
+      return () => {
+        ipcRenderer.removeListener("serial:log", handler);
+      };
+    },
     startBaudScan: (port: string, signals?: any): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke("serial:start-baud-scan", { port, signals });
     },

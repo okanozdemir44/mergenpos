@@ -4,6 +4,7 @@ import {
   parseCallerIdLine,
   normalizeParsedPhone,
   CallerIdStreamBuffer,
+  extractCidShowPhone,
 } from "./callerIdParser";
 
 test("normalizeParsedPhone tests", () => {
@@ -167,4 +168,43 @@ test("CallerIdStreamBuffer: Satır sonu (CRLF) gelmese de 80ms sonra timeout flu
   assert.strictEqual(calls[0], "05321234567");
   assert.strictEqual(lines.length, 1);
 });
+
+test("extractCidShowPhone: CidShow C812A ve ham regex numara ayıklama", () => {
+  // 1) 05XXXXXXXXX formatı paket içinde
+  assert.strictEqual(
+    extractCidShowPhone("C812A:SN:652EB1525:LINE:1:05321234567\r\n"),
+    "05321234567"
+  );
+
+  // 2) 5XXXXXXXXX formatı (başında 0 olmadan) -> Başına 0 eklenerek 11 haneye normalize edilir
+  assert.strictEqual(
+    extractCidShowPhone("C812A-CH1-5321234567-652EB1525"),
+    "05321234567"
+  );
+  assert.strictEqual(
+    extractCidShowPhone("CALL 5559876543 LINE1"),
+    "05559876543"
+  );
+
+  // 3) HEX temsilinden numara çekme (örn. BCD veya raw hex sınırları)
+  assert.strictEqual(
+    extractCidShowPhone("AA0F05321234567FFF"),
+    "05321234567"
+  );
+
+  // 4) Seri numarasının yanlış eşleşmemesi
+  assert.strictEqual(extractCidShowPhone("652EB1525"), null);
+  assert.strictEqual(extractCidShowPhone("CIDSHOW C812A NO CALL"), null);
+
+  // 5) Sabit hatlar
+  assert.strictEqual(
+    extractCidShowPhone("C812A:2:02125556677"),
+    "02125556677"
+  );
+  assert.strictEqual(
+    extractCidShowPhone("LINE2 2125556677 OK"),
+    "02125556677"
+  );
+});
+
 

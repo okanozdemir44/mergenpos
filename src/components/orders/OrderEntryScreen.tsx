@@ -241,8 +241,9 @@ export function OrderEntryScreen({ tableId }: Props) {
     const mutfakPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_MUTFAK") : null;
     if (autoPrint && mutfakPrinter) {
       try {
-        const { printReceiptHtml } = await import("@/lib/unified-printer");
+        const { printReceiptHtml, getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
         const { generateKitchenReceiptHtml } = await import("@/lib/receipt-generators");
+        const receiptSettings = await getOrFetchReceiptSettings(staff.restaurant_id);
         const itemsToPrint = [...draft]; // Yalnızca bu gönderimde eklenen YENİ kalemler basılır
         const kitchenReceiptData: any = {
           branchName: restaurantName,
@@ -267,7 +268,7 @@ export function OrderEntryScreen({ tableId }: Props) {
           paidAmount: draftTotal,
           changeAmount: 0,
         };
-        const kitchenHtml = generateKitchenReceiptHtml(kitchenReceiptData);
+        const kitchenHtml = generateKitchenReceiptHtml(kitchenReceiptData, receiptSettings);
         await printReceiptHtml(mutfakPrinter, kitchenHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
       } catch (printErr) {
         console.error("Mutfak fişi basılamadı:", printErr);
@@ -337,8 +338,9 @@ export function OrderEntryScreen({ tableId }: Props) {
     const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
     if (autoPrint && kasaPrinter && sent.length > 0) {
       try {
-        const { printReceiptHtml } = await import("@/lib/unified-printer");
+        const { printReceiptHtml, getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
         const { generateCashierReceiptHtml } = await import("@/lib/receipt-generators");
+        const receiptSettings = await getOrFetchReceiptSettings(staff.restaurant_id);
         const cashierReceiptData: any = {
           branchName: restaurantName,
           receiptNo: ids[0]?.slice(0, 8) || String(Math.floor(100000000 + Math.random() * 900000000)),
@@ -362,7 +364,7 @@ export function OrderEntryScreen({ tableId }: Props) {
           paidAmount: sentTotal,
           changeAmount: 0,
         };
-        const cashierHtml = generateCashierReceiptHtml(cashierReceiptData);
+        const cashierHtml = generateCashierReceiptHtml(cashierReceiptData, receiptSettings);
         await printReceiptHtml(kasaPrinter, cashierHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
       } catch (printErr) {
         console.error("Kasa fişi basılamadı:", printErr);

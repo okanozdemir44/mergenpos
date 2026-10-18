@@ -1,6 +1,6 @@
 {
   "name": "mergen-pos-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Mergen POS Windows Desktop Shell",
   "main": "dist-electron/main/index.js",
   "author": "Mergen POS",

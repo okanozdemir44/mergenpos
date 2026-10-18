@@ -468,6 +468,12 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     [hasLicense, enabled, staff?.restaurant_id, addLog]
   );
 
+  // incomingCall referansını ref'te tutarak useEffect'in gereksiz tetiklenip portu kapatıp açmasını engelliyoruz
+  const incomingCallRef = useRef(incomingCall);
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
+
   // Electron Masaüstü Kabuğu: Seri port yönetimi ve çağrı aboneliği (Tarayıcıda hiçbir şey yapmaz)
   useEffect(() => {
     if (typeof window === "undefined" || !window.desktopAPI?.serial) return;
@@ -489,10 +495,15 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
       setSignals(sig);
     });
 
-    // 4. Durum aboneliği
+    // 4. Doğrudan masaüstü kabuğunun ürettiği ayrıntılı sistem ve port logları (orijinal stack & hatalar)
+    const unsubLog = desktop.serial.onLog?.((log) => {
+      addLog(log.text, log.type);
+    });
+
+    // 5. Durum aboneliği
     const unsubStatus = desktop.serial.onStatus((status) => {
       setSerialStatus(status);
-      if (status.error) {
+      if (status.error && !desktop.serial.onLog) {
         addLog(`[PORT HATA] ${status.error}`, "error");
       } else if (status.isOpen) {
         addLog(`[PORT BAĞLANDI] ${status.port} (${status.baudRate} baud)`, "info");
@@ -504,13 +515,13 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
     // İlk açılışta mevcut durumu da sorgula
     desktop.serial.status().then((st) => setSerialStatus(st)).catch(() => {});
 
-    // 5. Çağrı yakalama aboneliği (kabuk tarafından ayıklanan numara)
+    // 6. Çağrı yakalama aboneliği (kabuk tarafından ayıklanan numara)
     const unsubCall = desktop.onIncomingCall((phone) => {
       addLog(`[ÇAĞRI AYIKLANDI] Tel: ${phone}`, "call");
-      incomingCall(phone);
+      incomingCallRef.current(phone);
     });
 
-    // 6. Lisansa ve Toggle durumuna bağlı olarak portu aç/kapat (Lisans yoksa veya toggle kapalıysa port kesinlikle açılmaz)
+    // 7. Lisansa ve Toggle durumuna bağlı olarak portu aç/kapat (Lisans yoksa veya toggle kapalıysa port kesinlikle açılmaz)
     if (hasLicense && enabled && comPort) {
       desktop.serial.open(comPort, baudRate, modemMode, { dtr, rts }).then((res) => {
         if (!res.success && res.error) {
@@ -525,11 +536,12 @@ export function CallerIdProvider({ children }: { children: React.ReactNode }) {
       unsubRaw();
       unsubData();
       unsubSignals();
+      unsubLog?.();
       unsubStatus();
       unsubCall();
       desktop.serial.close().catch(() => {});
     };
-  }, [hasLicense, enabled, comPort, baudRate, modemMode, dtr, rts, incomingCall, addLog]);
+  }, [hasLicense, enabled, comPort, baudRate, modemMode, dtr, rts, addLog]);
 
   const reconnectSerial = useCallback(async () => {
     if (typeof window === "undefined" || !window.desktopAPI?.serial) return;

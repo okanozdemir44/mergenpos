@@ -106,6 +106,7 @@ export interface DesktopAPI {
     onData: (callback: (data: SerialDataEvent) => void) => () => void;
     onRaw: (callback: (raw: SerialRawEvent) => void) => () => void;
     onStatus: (callback: (status: SerialStatus) => void) => () => void;
+    onLog: (callback: (log: { text: string; type: "info" | "call" | "warn" | "error" | "raw" }) => void) => () => void;
     startBaudScan: (port: string, signals?: SignalSettings) => Promise<{ success: boolean; error?: string }>;
     stopBaudScan: () => Promise<{ success: boolean }>;
     onBaudScanProgress: (callback: (item: BaudScanItem) => void) => () => void;

@@ -14,6 +14,7 @@ export type ReceiptItem = {
 
 export type ThermalReceiptProps = {
   branchName?: string;
+  logoUrl?: string | null;
   receiptNo?: string;
   dateStr?: string;
   cashierName?: string;

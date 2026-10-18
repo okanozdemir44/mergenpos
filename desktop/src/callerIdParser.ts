@@ -96,65 +96,63 @@ export function parseCallerIdLine(text: string): string | null {
 }
 
 /**
- * Yedek Numara Ayıklayıcı (Fallback Regex Extractor)
- * Bilinen formatlar eşleşmediğinde, metindeki rakam dizilerini çıkarır ve yalnızca
- * Türkiye telefon standartlarına TAM uyanları (öncesi ve sonrası rakam olmayan) numara sayar:
+ * CidShow C812A ve Genel Paket Regex Numara Ayıklayıcı
+ * Metin veya HEX dizisi içindeki:
  * 1) 05XXXXXXXXX (11 hane cep)
- * 2) 0[2-4]XXXXXXXXX (11 hane sabit hat)
- * 3) +90 / 0090 / 90 ön ekli 10 haneli numaralar
+ * 2) 5XXXXXXXXX (10 hane cep - başında 0 yoksa 0 eklenir)
+ * 3) +90 / 0090 / 90 ön ekli numaralar
+ * 4) 0[2-4]XXXXXXXXX (11 hane sabit hat)
+ * 5) [2-4]XXXXXXXXX (10 hane sabit hat - başında 0 yoksa 0 eklenir)
  * 
- * Cihaz kimliği (örn. 652EB1525:1), hat no veya tarih/saat (DATE=1015 TIME=0715)
- * gibi rakamların yanlış eşleşmesini engeller.
+ * Öncesinde veya sonrasında rakam olmayan geçerli numaraları döndürür.
+ * CidShow C812A seri no (652EB1525) vb. yanlış eşleşmez.
  */
-export function extractBackupPhone(text: string): string | null {
-  if (!text || typeof text !== "string") return null;
+export function extractCidShowPhone(textOrHex: string): string | null {
+  if (!textOrHex || typeof textOrHex !== "string") return null;
 
-  // 1) +90 ön ekli 10 haneli (toplam 10 hane: 5xx cep veya [2-4]xx sabit)
-  const plus90Match = text.match(/(?<![\d+])\+90[\s-]?([1-9]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
-  if (plus90Match) {
-    const raw = (plus90Match[1] + plus90Match[2] + plus90Match[3] + plus90Match[4]).replace(/\D/g, "");
-    if (/^(?:5\d{9}|[2-4]\d{9})$/.test(raw)) {
-      return "0" + raw;
-    }
+  // 1) 05XXXXXXXXX (11 hane Türkiye cep)
+  const m05 = textOrHex.match(/(?<!\d)(05\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (m05) {
+    const raw = (m05[1] + m05[2] + m05[3] + m05[4]).replace(/\D/g, "");
+    if (/^05\d{9}$/.test(raw)) return raw;
   }
 
-  // 2) 0090 ön ekli 10 haneli
-  const doubleZero90Match = text.match(/(?<!\d)0090[\s-]?([1-9]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
-  if (doubleZero90Match) {
-    const raw = (doubleZero90Match[1] + doubleZero90Match[2] + doubleZero90Match[3] + doubleZero90Match[4]).replace(/\D/g, "");
-    if (/^(?:5\d{9}|[2-4]\d{9})$/.test(raw)) {
-      return "0" + raw;
-    }
+  // 2) 5XXXXXXXXX (10 hane cep - başında 0 olmayan)
+  const m5 = textOrHex.match(/(?<!\d)(5\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (m5) {
+    const raw = (m5[1] + m5[2] + m5[3] + m5[4]).replace(/\D/g, "");
+    if (/^5\d{9}$/.test(raw)) return "0" + raw;
   }
 
-  // 3) 90 ön ekli 10 haneli (toplam 12 hane)
-  const zero90Match = text.match(/(?<!\d)90[\s-]?([1-9]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
-  if (zero90Match) {
-    const raw = (zero90Match[1] + zero90Match[2] + zero90Match[3] + zero90Match[4]).replace(/\D/g, "");
-    if (/^(?:5\d{9}|[2-4]\d{9})$/.test(raw)) {
-      return "0" + raw;
-    }
+  // 3) +90 / 0090 / 90 ön ekli
+  const mIntl = textOrHex.match(/(?<![\d+])(?:\+90|0090|90)[\s-]?([1-9]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (mIntl) {
+    const raw = (mIntl[1] + mIntl[2] + mIntl[3] + mIntl[4]).replace(/\D/g, "");
+    if (/^(?:5\d{9}|[2-4]\d{9})$/.test(raw)) return "0" + raw;
   }
 
-  // 4) 05XXXXXXXXX (11 hane cep)
-  const mobileMatch = text.match(/(?<!\d)(05\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
-  if (mobileMatch) {
-    const raw = (mobileMatch[1] + mobileMatch[2] + mobileMatch[3] + mobileMatch[4]).replace(/\D/g, "");
-    if (/^05\d{9}$/.test(raw)) {
-      return raw;
-    }
+  // 4) 0[2-4]XXXXXXXXX (11 hane sabit hat)
+  const mLandline0 = textOrHex.match(/(?<!\d)(0[2-4]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (mLandline0) {
+    const raw = (mLandline0[1] + mLandline0[2] + mLandline0[3] + mLandline0[4]).replace(/\D/g, "");
+    if (/^0[2-4]\d{9}$/.test(raw)) return raw;
   }
 
-  // 5) 0[2-4]XXXXXXXXX (11 hane sabit hat)
-  const landlineMatch = text.match(/(?<!\d)(0[2-4]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
-  if (landlineMatch) {
-    const raw = (landlineMatch[1] + landlineMatch[2] + landlineMatch[3] + landlineMatch[4]).replace(/\D/g, "");
-    if (/^0[2-4]\d{9}$/.test(raw)) {
-      return raw;
-    }
+  // 5) [2-4]XXXXXXXXX (10 hane sabit hat - başında 0 olmayan)
+  const mLandline = textOrHex.match(/(?<!\d)([2-4]\d{2})[\s-]?(\d{3})[\s-]?(\d{2})[\s-]?(\d{2})(?!\d)/);
+  if (mLandline) {
+    const raw = (mLandline[1] + mLandline[2] + mLandline[3] + mLandline[4]).replace(/\D/g, "");
+    if (/^[2-4]\d{9}$/.test(raw)) return "0" + raw;
   }
 
   return null;
+}
+
+/**
+ * Yedek Numara Ayıklayıcı (Fallback Regex Extractor)
+ */
+export function extractBackupPhone(text: string): string | null {
+  return extractCidShowPhone(text);
 }
 
 /**

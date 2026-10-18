@@ -213,3 +213,5 @@ export function generateTestReceiptHtml(
     </div>
   `;
 }
+
+export { getOrFetchReceiptSettings, getCachedReceiptSettings } from "./receipt-settings-client";

@@ -114,6 +114,15 @@ function PosShellInner({ children }: { children: React.ReactNode }) {
             <span className="pos-side-action-btn__icon">📞</span>
             <span className="pos-side-action-btn__label">Caller ID</span>
           </button>
+          <Link
+            href="/receipt-settings"
+            className="pos-side-action-btn"
+            style={{ textDecoration: "none", ...(pathname === "/receipt-settings" ? { background: "rgba(255, 255, 255, 0.35)", borderColor: "#fff" } : {}) }}
+            title="Fiş Ayarları"
+          >
+            <span className="pos-side-action-btn__icon">🧾</span>
+            <span className="pos-side-action-btn__label">Fiş Ayarları</span>
+          </Link>
           <button 
             type="button"
             onClick={() => setShowPrinterSettings(true)} 

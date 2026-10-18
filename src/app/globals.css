@@ -1394,7 +1394,6 @@ input {
 /* ===== Print Media Styles ===== */
 @media print {
   @page {
-    size: 80mm auto;
     margin: 0;
   }
 
@@ -1422,9 +1421,8 @@ input {
 
   .thermal-receipt {
     display: block !important;
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+    position: static !important;
+    margin: 0 auto !important;
     width: 76mm !important;
     max-width: 76mm !important;
     padding: 2mm 3mm 8mm 3mm !important;
