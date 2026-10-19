@@ -85,12 +85,28 @@ export interface DesktopPrintOptions {
   savePdfForDebug?: boolean;
 }
 
+export interface CallerIdStatus {
+  loaded: boolean;
+  dllPath: string | null;
+  isRunning: boolean;
+  architecture: string;
+  deviceConnected: boolean;
+  lastCall: any;
+  lastCallTime: number | null;
+  error: string | null;
+}
+
 export interface DesktopAPI {
   isElectron: true;
   version: string;
   platform: NodeJS.Platform;
   getConfig: () => Promise<DesktopConfig>;
   onIncomingCall: (callback: (phone: string) => void) => () => void;
+  callerId?: {
+    getStatus: () => Promise<CallerIdStatus>;
+    start: () => Promise<boolean>;
+    stop: () => Promise<{ success: boolean }>;
+  };
   serial: {
     listPorts: () => Promise<SerialPortInfo[]>;
     open: (
@@ -123,3 +139,4 @@ declare global {
     desktopAPI?: DesktopAPI;
   }
 }
+

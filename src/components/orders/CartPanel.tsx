@@ -157,7 +157,7 @@ export function CartPanel({
                 onClick={() => onChangePaymentMethod(method)}
                 disabled={submitting}
               >
-                <span>{method === "cash" ? "💵" : method === "card" ? "💳" : "🎟️"}</span>
+                <span>{method === "cash" ? "💵" : method === "card" ? "💳" : method === "veresiye" ? "📝" : "🎟️"}</span>
                 <span>{PAYMENT_METHOD_LABEL[method]}</span>
               </button>
             ))}

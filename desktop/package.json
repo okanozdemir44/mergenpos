@@ -1,6 +1,6 @@
 {
   "name": "mergen-pos-desktop",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Mergen POS Windows Desktop Shell",
   "main": "dist-electron/main/index.js",
   "author": "Mergen POS",
@@ -9,7 +9,7 @@
     "clean": "node -e \"const fs = require('fs'); ['dist-electron', 'dist'].forEach(d => { if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true }); });\"",
     "build:ts": "tsc",
     "build": "npm run clean && npm run build:ts",
-    "test": "npm run build:ts && node --test dist-electron/callerIdParser.test.js dist-electron/printQueue.test.js",
+    "test": "npm run build:ts && node --test dist-electron/callerIdParser.test.js dist-electron/printQueue.test.js dist-electron/callerIdService.test.js",
     "start": "npm run build:ts && electron .",
     "dev": "npm run build:ts && electron .",
     "pack": "npm run build && electron-builder --dir",
@@ -29,7 +29,9 @@
     ],
     "asarUnpack": [
       "**/*.node",
-      "**/@serialport/**"
+      "**/@serialport/**",
+      "**/koffi/**",
+      "assets/cid.dll"
     ],
     "npmRebuild": false,
     "nodeGypRebuild": false,
@@ -65,6 +67,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
+    "koffi": "^3.3.3",
     "serialport": "^13.0.0"
   }
 }

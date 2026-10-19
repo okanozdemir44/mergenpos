@@ -25,6 +25,11 @@ const desktopAPI: DesktopAPI = {
       ipcRenderer.removeListener("callerid:incoming", handler);
     };
   },
+  callerId: {
+    getStatus: () => ipcRenderer.invoke("callerid:status"),
+    start: () => ipcRenderer.invoke("callerid:start"),
+    stop: () => ipcRenderer.invoke("callerid:stop"),
+  },
   serial: {
     listPorts: (): Promise<SerialPortInfo[]> => {
       return ipcRenderer.invoke("serial:list-ports");

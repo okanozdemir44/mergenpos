@@ -9,7 +9,8 @@ export class AppLogger {
   private logFile: string;
 
   constructor() {
-    this.logDir = path.join(app.getPath("userData"), "logs");
+    const basePath = app && typeof app.getPath === "function" ? app.getPath("userData") : process.cwd();
+    this.logDir = path.join(basePath, "logs");
     this.logFile = path.join(this.logDir, "app.log");
     this.ensureDir();
   }
@@ -39,6 +40,18 @@ export class AppLogger {
     } else {
       console.log(line.trim());
     }
+  }
+
+  public info(message: string) {
+    this.log("INFO", message);
+  }
+
+  public warn(message: string) {
+    this.log("WARN", message);
+  }
+
+  public error(message: string) {
+    this.log("ERROR", message);
   }
 
   private rotateIfNeeded() {

@@ -1,7 +1,7 @@
 export type TableStatus = "empty" | "occupied";
 export type OrderType = "dine_in" | "takeaway" | "delivery";
 export type OrderStatus = "hazirlaniyor" | "hazir" | "yolda" | "teslim_edildi" | "iptal";
-export type PaymentMethod = "cash" | "card" | "tokenflex" | "pluxee" | "edered" | "multinet" | "setcard" | "metropolcard";
+export type PaymentMethod = "cash" | "card" | "tokenflex" | "pluxee" | "edered" | "multinet" | "setcard" | "metropolcard" | "veresiye";
 export type CourierStatus = "queued" | "dispatched" | "delivered";
 export type OrderItemStatus = "pending" | "preparing" | "ready";
 
@@ -117,6 +117,7 @@ export const ORDER_ITEM_STATUS_LABEL: Record<OrderItemStatus, string> = {
 export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
   cash: "Nakit",
   card: "Kredi Kartı",
+  veresiye: "Veresiye",
   tokenflex: "TokenFlex",
   pluxee: "Pluxee",
   edered: "Edenred",

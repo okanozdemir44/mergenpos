@@ -6,6 +6,7 @@ import { setupSecurity, setupSessionPermissions } from "./security";
 import { setupTray, showAndFocus } from "./tray";
 import { SerialManager } from "./serialManager";
 import { PrintManager } from "./printManager";
+import { CallerIdService } from "./callerIdService";
 import { logger, setupExceptionHandlers } from "./logger";
 import { setupAutoUpdater } from "./updater";
 
@@ -29,6 +30,7 @@ let retryTimer: NodeJS.Timeout | null = null;
 const config = loadConfig();
 const serialManager = new SerialManager(config);
 const printManager = new PrintManager();
+const callerIdService = new CallerIdService();
 
 function createWindow(): BrowserWindow {
   const icoPath = path.join(__dirname, "../../assets/icon.ico");
@@ -144,6 +146,7 @@ app.on("second-instance", () => {
 app.on("before-quit", () => {
   isQuitting = true;
   serialManager.closePort().catch(() => {});
+  callerIdService.stop();
   if (retryTimer) {
     clearTimeout(retryTimer);
     retryTimer = null;
@@ -157,6 +160,20 @@ app.whenReady().then(() => {
   // IPC: Konfigürasyon
   ipcMain.handle("desktop:get-config", () => {
     return config;
+  });
+
+  // IPC: USB HID Caller ID (cid.dll)
+  ipcMain.handle("callerid:status", () => {
+    return callerIdService.getStatus();
+  });
+
+  ipcMain.handle("callerid:start", () => {
+    return callerIdService.start();
+  });
+
+  ipcMain.handle("callerid:stop", () => {
+    callerIdService.stop();
+    return { success: true };
   });
 
   // IPC: Seri Port
@@ -213,6 +230,10 @@ app.whenReady().then(() => {
   mainWindow = createWindow();
   serialManager.setMainWindow(mainWindow);
   printManager.setMainWindow(mainWindow);
+  callerIdService.setMainWindow(mainWindow);
+
+  // USB HID Caller ID servisini otomatik olarak başlat
+  callerIdService.start();
 
   // Otomatik güncelleme altyapısını başlat
   setupAutoUpdater(mainWindow);
@@ -221,6 +242,7 @@ app.whenReady().then(() => {
   setupTray(mainWindow, config, () => {
     isQuitting = true;
     serialManager.closePort().catch(() => {});
+    callerIdService.stop();
     app.quit();
   });
 
@@ -229,6 +251,7 @@ app.whenReady().then(() => {
       mainWindow = createWindow();
       serialManager.setMainWindow(mainWindow);
       printManager.setMainWindow(mainWindow);
+      callerIdService.setMainWindow(mainWindow);
     } else if (mainWindow) {
       showAndFocus(mainWindow);
     }

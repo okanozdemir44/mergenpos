@@ -1,5 +1,6 @@
 node_modules/
 dist/
 dist-electron/
+logs/
 .DS_Store
 Thumbs.db

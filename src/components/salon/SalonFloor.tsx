@@ -40,9 +40,14 @@ export function SalonFloor() {
   const cartRef = useRef(cart);
   cartRef.current = cart;
 
-  const total = useMemo(
+  const rawTotal = useMemo(
     () => cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0),
     [cart],
+  );
+
+  const total = useMemo(
+    () => (paymentMethod === "veresiye" ? 0 : rawTotal),
+    [paymentMethod, rawTotal],
   );
 
   const loadMenu = useCallback(async (restaurantId: string) => {
@@ -206,6 +211,12 @@ export function SalonFloor() {
       if (orderRes.error && /order_number/i.test(orderRes.error.message)) {
         delete insertPayload.order_number;
         orderRes = await supabase.from("orders").insert(insertPayload).select("id").single();
+      }
+
+      // payment_method constraint fallback (veresiye veritabanında henüz constraint güncellenmediyse null olarak kaydet)
+      if (orderRes.error && /payment_method/i.test(orderRes.error.message)) {
+        insertPayload.payment_method = null;
+        orderRes = await supabase.from("orders").insert(insertPayload).select("id, order_number").single();
       }
 
       if (orderRes.error || !orderRes.data) {

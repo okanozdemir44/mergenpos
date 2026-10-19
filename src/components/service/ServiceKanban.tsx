@@ -38,6 +38,63 @@ function formatElapsedTime(createdAt: string): string {
   return `${diffHours} saat önce`;
 }
 
+function CopyButton({ text, title }: { text: string; title: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (err) {
+      console.error("Kopyalama hatası:", err);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "Kopyalandı!" : title}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-semibold transition-all flex-shrink-0 cursor-pointer ${
+        copied
+          ? "bg-green-100 text-green-700 border border-green-300 scale-105"
+          : "bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 border border-gray-300"
+      }`}
+    >
+      {copied ? (
+        <>
+          <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <span>Kopyalandı</span>
+        </>
+      ) : (
+        <>
+          <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <span>Kopyala</span>
+        </>
+      )}
+    </button>
+  );
+}
+
 export function ServiceKanban({ orderType, hideHeader = false }: Props) {
   const router = useRouter();
   const { loading: staffLoading, staff, error: staffError, userId } = useStaffSession();
@@ -287,24 +344,27 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
                       key={o.id}
                       className="bg-gray-50 border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
                     >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                             <span className="text-xs font-bold text-gray-500 uppercase">
                               {o.order_type === "delivery" ? "Paket" : "Gel Al"}
                             </span>
-                            <strong className="text-base">
+                            <strong className="text-base truncate max-w-[130px]" title={o.customer_name || ""}>
                               {o.customer_name || "Müşteri"}
                             </strong>
+                            {o.customer_name && (
+                              <CopyButton text={o.customer_name} title="Müşteri Adını Kopyala" />
+                            )}
                           </div>
-                          <div className="text-xs text-gray-500 mb-1">
+                          <div className="text-xs text-gray-500 mb-0.5">
                             Sipariş #{o.id.slice(0, 8)}
                           </div>
                           <div className="text-xs text-gray-600 font-semibold">
                             {formatElapsedTime(o.created_at)}
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex-shrink-0">
                           <div className="text-lg font-black text-teal-700">
                             {formatTry(o.total_amount)}
                           </div>
@@ -312,11 +372,17 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
                       </div>
 
                       {o.customer_phone && (
-                        <div className="text-sm text-gray-600 mb-2">Tel: {o.customer_phone}</div>
+                        <div className="flex items-center justify-between text-xs text-gray-700 mb-1.5 bg-white px-2 py-1 rounded-md border border-gray-200">
+                          <span className="font-semibold truncate">Tel: {o.customer_phone}</span>
+                          <CopyButton text={o.customer_phone} title="Telefonu Kopyala" />
+                        </div>
                       )}
                       {o.delivery_address && (
-                        <div className="text-sm text-gray-600 mb-2 line-clamp-2">
-                          Adres: {o.delivery_address}
+                        <div className="flex items-start justify-between text-xs text-gray-700 mb-2 bg-white px-2 py-1.5 rounded-md border border-gray-200 gap-1.5">
+                          <span className="line-clamp-2 font-medium flex-1">
+                            Adres: {o.delivery_address}
+                          </span>
+                          <CopyButton text={o.delivery_address} title="Adresi Kopyala" />
                         </div>
                       )}
 
