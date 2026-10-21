@@ -61,7 +61,8 @@ export function ServiceOrderEntry() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [receiptData, setReceiptData] = useState<ThermalReceiptProps | null>(null);
 
-  const total = useMemo(() => cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0), [cart]);
+  const rawTotal = useMemo(() => cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0), [cart]);
+  const total = useMemo(() => (paymentMethod === "veresiye" ? 0 : rawTotal), [paymentMethod, rawTotal]);
 
   const load = useCallback(async (restaurantId: string) => {
     const supabase = createBrowserClient();
@@ -449,6 +450,16 @@ export function ServiceOrderEntry() {
         .single();
     }
 
+    // Fallback: payment_method constraint fallback (veresiye veritabanında constraint engeline takılırsa null fallback)
+    if (orderRes.error && /payment_method/i.test(orderRes.error.message)) {
+      orderPayload.payment_method = null;
+      orderRes = await supabase
+        .from("orders")
+        .insert(orderPayload)
+        .select("id, order_number")
+        .single();
+    }
+
     if (orderRes.error || !orderRes.data) {
       setError(orderRes.error?.message ?? "Sipariş oluşturulamadı");
       setSubmitting(false);
@@ -702,7 +713,7 @@ export function ServiceOrderEntry() {
           <div className="order-cart__foot">
             <div className="order-cart__total">
               <span>Toplam</span>
-              <strong>{formatTry(total)}</strong>
+              <strong>{formatTry(rawTotal)}</strong>
             </div>
 
             <div style={{ marginTop: "1rem" }}>
@@ -818,7 +829,7 @@ export function ServiceOrderEntry() {
               {/* Ödeme Yöntemi */}
               <div style={{ marginBottom: "1rem" }}>
                 <label className="login-label">Ödeme Yöntemi</label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginTop: "4px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginTop: "4px" }}>
                   <button
                     type="button"
                     className={`channel-btn ${paymentMethod === "cash" ? "channel-btn--active" : ""}`}
@@ -833,6 +844,13 @@ export function ServiceOrderEntry() {
                   >
                     💳 Kredi Kartı
                   </button>
+                  <button
+                    type="button"
+                    className={`channel-btn ${paymentMethod === "veresiye" ? "channel-btn--active" : ""}`}
+                    onClick={() => setPaymentMethod("veresiye")}
+                  >
+                    📝 Veresiye
+                  </button>
                 </div>
               </div>
 
@@ -840,6 +858,11 @@ export function ServiceOrderEntry() {
                 <span>Toplam Ödenecek ({PAYMENT_METHOD_LABEL[paymentMethod]})</span>
                 <strong>{formatTry(total)}</strong>
               </div>
+              {paymentMethod === "veresiye" && (
+                <div style={{ fontSize: "0.8rem", color: "#d97706", marginTop: "0.35rem", fontWeight: 600 }}>
+                  ℹ️ Veresiye seçildi: Paket tutarı ₺0,00 olarak kaydedilecektir.
+                </div>
+              )}
 
               {error && (
                 <div className="salon-banner salon-banner--error" style={{ marginTop: "1rem" }}>

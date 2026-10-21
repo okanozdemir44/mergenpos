@@ -75,10 +75,27 @@ export function DetailedReportsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
 
-  // Order list
+  // Order list & pagination (50'şer)
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const ITEMS_PER_PAGE = 25;
+  const ITEMS_PER_PAGE = 50;
+
+  // Order actions & cancellation
+  const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
+  const [confirmCancelOrder, setConfirmCancelOrder] = useState<OrderRow | null>(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [cancelSuccessMsg, setCancelSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".order-action-container")) {
+        setActiveActionMenuId(null);
+      }
+    };
+    window.addEventListener("click", handleOutsideClick);
+    return () => window.removeEventListener("click", handleOutsideClick);
+  }, []);
 
   // Date range validation
   const dateWarning = useMemo(() => {
@@ -113,6 +130,41 @@ export function DetailedReportsPanel() {
     setLoading(false);
     setHasFetched(true);
   }, [staff?.restaurant_id, startDay, startMonth, startYear, endDay, endMonth, endYear, dateWarning]);
+
+  const handleCancelOrder = async (order: OrderRow) => {
+    if (!staff?.restaurant_id) return;
+    setCancellingOrderId(order.id);
+    setError(null);
+
+    try {
+      const supabase = createBrowserClient();
+      const { error: cancelErr } = await supabase
+        .from("orders")
+        .update({
+          status: "iptal",
+          total_amount: 0,
+        })
+        .eq("id", order.id)
+        .eq("restaurant_id", staff.restaurant_id);
+
+      if (cancelErr) {
+        throw new Error(cancelErr.message);
+      }
+
+      // Siparişi listeden tamamen çıkar; ciro, ortalama sepet, grafikler ve ürünler bu sipariş yok sayılarak anında güncellenir
+      setOrders(prev => prev.filter(o => o.id !== order.id));
+      if (expandedId === order.id) setExpandedId(null);
+      setConfirmCancelOrder(null);
+      setActiveActionMenuId(null);
+      setCancelSuccessMsg(`Sipariş #${order.order_number ?? "-"} başarıyla iptal edildi ve tüm hesaplamalardan çıkarıldı.`);
+      setTimeout(() => setCancelSuccessMsg(null), 5000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Sipariş iptal edilirken bir hata oluştu.";
+      setError(msg);
+    } finally {
+      setCancellingOrderId(null);
+    }
+  };
 
   // Auto-fetch on mount (today)
   useEffect(() => {
@@ -304,6 +356,32 @@ export function DetailedReportsPanel() {
           <p>{error}</p>
         </div>
       )}
+      {cancelSuccessMsg && (
+        <div
+          style={{
+            marginTop: "0.5rem",
+            padding: "0.75rem 1rem",
+            borderRadius: "10px",
+            background: "#ecfdf5",
+            border: "1px solid #a7f3d0",
+            color: "#065f46",
+            fontSize: "0.9rem",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>✓ {cancelSuccessMsg}</span>
+          <button
+            type="button"
+            onClick={() => setCancelSuccessMsg(null)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 700 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {!hasFetched && !loading && (
         <p className="salon-muted" style={{ marginTop: "1rem" }}>Tarih aralığı seçip "Filtrele" butonuna basın.</p>
@@ -446,7 +524,14 @@ export function DetailedReportsPanel() {
                       <div key={o.id} style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                         <div
                           className="service-card"
-                          style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", cursor: "pointer" }}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr auto auto",
+                            alignItems: "center",
+                            gap: "0.75rem",
+                            cursor: "pointer",
+                            position: "relative",
+                          }}
                           onClick={() => setExpandedId(prev => prev === o.id ? null : o.id)}
                         >
                           <div>
@@ -460,7 +545,49 @@ export function DetailedReportsPanel() {
                               </span>
                             </div>
                           </div>
+
                           <strong style={{ fontSize: "1.1rem" }}>{formatTry(Number(o.total_amount))}</strong>
+
+                          {/* 3 Nokta İşlem Menüsü */}
+                          <div
+                            className="order-action-container"
+                            style={{ position: "relative" }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              className="order-dots-btn"
+                              onClick={() => setActiveActionMenuId(prev => prev === o.id ? null : o.id)}
+                              title="İşlemler"
+                              aria-label="İşlemler"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="12" cy="5" r="2.2" />
+                                <circle cx="12" cy="12" r="2.2" />
+                                <circle cx="12" cy="19" r="2.2" />
+                              </svg>
+                            </button>
+
+                            {activeActionMenuId === o.id && (
+                              <div className="order-action-dropdown">
+                                <button
+                                  type="button"
+                                  className="order-action-dropdown__item order-action-dropdown__item--danger"
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    setConfirmCancelOrder(o);
+                                  }}
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="15" y1="9" x2="9" y2="15" />
+                                    <line x1="9" y1="9" x2="15" y2="15" />
+                                  </svg>
+                                  <span>Siparişi İptal Et</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         {expandedId === o.id && <OrderDetailInline orderId={o.id} />}
                       </div>
@@ -469,25 +596,59 @@ export function DetailedReportsPanel() {
                 )}
 
                 {totalPages > 1 && (
-                  <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: "0.5rem", marginTop: "1.25rem", justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      disabled={page <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      style={{
+                        padding: "0.45rem 0.9rem",
+                        borderRadius: "8px",
+                        border: "1px solid var(--pos-line)",
+                        background: "#fff",
+                        color: page <= 1 ? "var(--pos-muted)" : "var(--pos-ink)",
+                        fontWeight: 600,
+                        cursor: page <= 1 ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      ‹ Önceki
+                    </button>
+
                     {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
                       <button
                         key={p}
                         type="button"
                         onClick={() => setPage(p)}
                         style={{
-                          padding: "0.4rem 0.8rem",
-                          borderRadius: "6px",
+                          padding: "0.45rem 0.9rem",
+                          borderRadius: "8px",
                           border: "1px solid var(--pos-line)",
                           background: p === page ? "var(--pos-teal)" : "#fff",
                           color: p === page ? "#fff" : "var(--pos-ink)",
-                          fontWeight: "bold",
+                          fontWeight: 700,
                           cursor: "pointer",
                         }}
                       >
                         {p}
                       </button>
                     ))}
+
+                    <button
+                      type="button"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      style={{
+                        padding: "0.45rem 0.9rem",
+                        borderRadius: "8px",
+                        border: "1px solid var(--pos-line)",
+                        background: "#fff",
+                        color: page >= totalPages ? "var(--pos-muted)" : "var(--pos-ink)",
+                        fontWeight: 600,
+                        cursor: page >= totalPages ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      Sonraki ›
+                    </button>
                   </div>
                 )}
               </div>
@@ -499,7 +660,57 @@ export function DetailedReportsPanel() {
           )}
         </>
       )}
+
+      {/* İptal Onay Modalı */}
+      {confirmCancelOrder && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-content" style={{ maxWidth: "420px", textAlign: "center", padding: "1.5rem" }}>
+            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#fee2e2", color: "#dc2626", display: "grid", placeItems: "center", margin: "0 auto 1rem" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+            </div>
+            <h3 style={{ fontSize: "1.2rem", fontWeight: 700, margin: "0 0 0.5rem" }}>
+              Siparişi İptal Et
+            </h3>
+            <p style={{ color: "#64748b", fontSize: "0.9rem", lineHeight: 1.5, margin: "0 0 1.25rem" }}>
+              <strong>Sipariş #{confirmCancelOrder.order_number ?? "-"}</strong> ({formatTry(Number(confirmCancelOrder.total_amount))}) iptal edilsin mi?
+              <br />
+              İptal edilen sipariş cirolardan, grafiklerden ve tüm raporlardan tamamen çıkarılacaktır.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <button
+                type="button"
+                className="ghost-btn"
+                disabled={cancellingOrderId === confirmCancelOrder.id}
+                onClick={() => setConfirmCancelOrder(null)}
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                style={{
+                  background: "#dc2626",
+                  color: "#fff",
+                  border: "none",
+                  padding: "0.6rem 1rem",
+                  borderRadius: "8px",
+                  fontWeight: 700,
+                  cursor: cancellingOrderId === confirmCancelOrder.id ? "not-allowed" : "pointer",
+                }}
+                disabled={cancellingOrderId === confirmCancelOrder.id}
+                onClick={() => void handleCancelOrder(confirmCancelOrder)}
+              >
+                {cancellingOrderId === confirmCancelOrder.id ? "İptal Ediliyor…" : "Evet, İptal Et"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+
   );
 }
 
