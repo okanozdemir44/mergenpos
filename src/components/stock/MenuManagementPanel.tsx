@@ -15,6 +15,7 @@ type EditingProduct = {
   category_id: string;
   description: string;
   price: string;
+  price_delivery: string;
   is_available: boolean;
 } | null;
 
@@ -42,6 +43,7 @@ export function MenuManagementPanel() {
   const [newCategoryId, setNewCategoryId] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newPrice, setNewPrice] = useState("");
+  const [newPriceDelivery, setNewPriceDelivery] = useState("");
   const [newSortOrder, setNewSortOrder] = useState("0");
   const [productSaving, setProductSaving] = useState(false);
   const [productError, setProductError] = useState<string | null>(null);
@@ -71,17 +73,35 @@ export function MenuManagementPanel() {
     const supabase = createBrowserClient();
     setItemsLoading(true);
     setItemsError(null);
-    const { data, error } = await supabase
+
+    const itemResInitial = await supabase
       .from("menu_items")
-      .select("id, restaurant_id, category_id, name, price, description, is_available, sort_order")
+      .select("id, restaurant_id, category_id, name, price, price_store, price_delivery, description, is_available, sort_order")
       .eq("restaurant_id", staff.restaurant_id)
       .order("sort_order", { ascending: true });
 
-    if (error) {
-      setItemsError(error.message);
+    let itemsData = itemResInitial.data as any[] | null;
+    let itemError = itemResInitial.error;
+    if (itemError && /price_delivery|price_store/i.test(itemError.message)) {
+      const fallback = await supabase
+        .from("menu_items")
+        .select("id, restaurant_id, category_id, name, price, description, is_available, sort_order")
+        .eq("restaurant_id", staff.restaurant_id)
+        .order("sort_order", { ascending: true });
+      itemsData = fallback.data as any[] | null;
+      itemError = fallback.error;
+    }
+
+    if (itemError) {
+      setItemsError(itemError.message);
     } else {
       setItems(
-        ((data ?? []) as MenuItem[]).map((i) => ({ ...i, price: Number(i.price) })),
+        ((itemsData ?? []) as any[]).map((i) => ({
+          ...i,
+          price: Number(i.price),
+          price_store: i.price_store != null ? Number(i.price_store) : Number(i.price),
+          price_delivery: i.price_delivery != null ? Number(i.price_delivery) : null,
+        })),
       );
     }
     setItemsLoading(false);
@@ -171,6 +191,7 @@ export function MenuManagementPanel() {
     setProductSaving(true);
     setProductError(null);
 
+    const deliveryPriceNum = newPriceDelivery.trim() ? Number(newPriceDelivery) : Number(newPrice);
     const optimisticItem: MenuItem = {
       id: `temp-${Date.now()}`,
       restaurant_id: staff.restaurant_id,
@@ -178,6 +199,8 @@ export function MenuManagementPanel() {
       name: newName.trim(),
       description: newDescription.trim() || null,
       price: Number(newPrice),
+      price_store: Number(newPrice),
+      price_delivery: deliveryPriceNum,
       is_available: true,
       sort_order: Number(newSortOrder) || 0,
     };
@@ -187,21 +210,38 @@ export function MenuManagementPanel() {
     setNewName("");
     setNewDescription("");
     setNewPrice("");
+    setNewPriceDelivery("");
     setNewSortOrder("0");
 
-    const { data, error } = await supabase
+    let insertPayload: Record<string, unknown> = {
+      restaurant_id: staff.restaurant_id,
+      category_id: optimisticItem.category_id,
+      name: optimisticItem.name,
+      description: optimisticItem.description,
+      price: optimisticItem.price,
+      price_store: optimisticItem.price,
+      price_delivery: deliveryPriceNum,
+      is_available: true,
+      sort_order: optimisticItem.sort_order,
+    };
+
+    let { data, error } = await supabase
       .from("menu_items")
-      .insert({
-        restaurant_id: staff.restaurant_id,
-        category_id: optimisticItem.category_id,
-        name: optimisticItem.name,
-        description: optimisticItem.description,
-        price: optimisticItem.price,
-        is_available: true,
-        sort_order: optimisticItem.sort_order,
-      })
-      .select("id, restaurant_id, category_id, name, price, description, is_available, sort_order")
+      .insert(insertPayload)
+      .select("id, restaurant_id, category_id, name, price, price_delivery, description, is_available, sort_order")
       .single();
+
+    if (error && /price_delivery|price_store/i.test(error.message)) {
+      delete insertPayload.price_delivery;
+      delete insertPayload.price_store;
+      const res = await supabase
+        .from("menu_items")
+        .insert(insertPayload)
+        .select("id, restaurant_id, category_id, name, price, description, is_available, sort_order")
+        .single();
+      data = res.data as any;
+      error = res.error;
+    }
 
     if (error) {
       setProductError(error.message);
@@ -209,7 +249,14 @@ export function MenuManagementPanel() {
     } else if (data) {
       setItems((prev) =>
         prev.map((i) =>
-          i.id === optimisticItem.id ? { ...(data as MenuItem), price: Number((data as MenuItem).price) } : i,
+          i.id === optimisticItem.id
+            ? {
+                ...(data as any),
+                price: Number((data as any).price),
+                price_store: (data as any).price_store != null ? Number((data as any).price_store) : Number((data as any).price),
+                price_delivery: (data as any).price_delivery != null ? Number((data as any).price_delivery) : deliveryPriceNum,
+              }
+            : i,
         ),
       );
     }
@@ -260,25 +307,55 @@ export function MenuManagementPanel() {
     const supabase = createBrowserClient();
     setProductSaving(true);
 
-    const patch = {
+    const deliveryPriceNum = editing.price_delivery.trim()
+      ? Number(editing.price_delivery)
+      : Number(editing.price);
+
+    const patch: Record<string, unknown> = {
       name: editing.name.trim(),
       category_id: editing.category_id,
       description: editing.description.trim() || null,
       price: Number(editing.price),
+      price_store: Number(editing.price),
+      price_delivery: deliveryPriceNum,
       is_available: editing.is_available,
     };
 
     // Optimistic UI
     setItems((prev) =>
-      prev.map((i) => (i.id === editing.id ? { ...i, ...patch, price: Number(patch.price) } : i)),
+      prev.map((i) =>
+        i.id === editing.id
+          ? {
+              ...i,
+              name: String(patch.name),
+              category_id: String(patch.category_id),
+              description: patch.description as string | null,
+              price: Number(patch.price),
+              price_store: Number(patch.price),
+              price_delivery: deliveryPriceNum,
+              is_available: Boolean(patch.is_available),
+            }
+          : i,
+      ),
     );
     setEditing(null);
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from("menu_items")
       .update(patch)
       .eq("id", editing.id)
       .eq("restaurant_id", staff.restaurant_id);
+
+    if (error && /price_delivery|price_store/i.test(error.message)) {
+      delete patch.price_delivery;
+      delete patch.price_store;
+      const res = await supabase
+        .from("menu_items")
+        .update(patch)
+        .eq("id", editing.id)
+        .eq("restaurant_id", staff.restaurant_id);
+      error = res.error;
+    }
 
     if (error) {
       setProductError(error.message);
@@ -456,8 +533,8 @@ export function MenuManagementPanel() {
                       ))}
                     </select>
                   </div>
-                  <div className="menu-mgmt__field" style={{ flex: "0 0 120px" }}>
-                    <label className="menu-mgmt__label">Fiyat (₺) *</label>
+                  <div className="menu-mgmt__field" style={{ flex: "0 0 130px" }}>
+                    <label className="menu-mgmt__label">Tezgah Fiyatı (₺) *</label>
                     <input
                       className="login-input"
                       type="number"
@@ -467,6 +544,18 @@ export function MenuManagementPanel() {
                       value={newPrice}
                       onChange={(e) => setNewPrice(e.target.value)}
                       required
+                    />
+                  </div>
+                  <div className="menu-mgmt__field" style={{ flex: "0 0 130px" }}>
+                    <label className="menu-mgmt__label">Paket Fiyatı (₺)</label>
+                    <input
+                      className="login-input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Tezgah ile aynı"
+                      value={newPriceDelivery}
+                      onChange={(e) => setNewPriceDelivery(e.target.value)}
                     />
                   </div>
                 </div>
@@ -566,9 +655,20 @@ export function MenuManagementPanel() {
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  placeholder="Fiyat"
+                                  placeholder="Tezgah Fiyatı"
+                                  title="Tezgah Fiyatı (₺)"
                                   value={editing.price}
                                   onChange={(e) => setEditing({ ...editing, price: e.target.value })}
+                                />
+                                <input
+                                  className="login-input"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="Paket Fiyatı"
+                                  title="Paket Fiyatı (₺)"
+                                  value={editing.price_delivery}
+                                  onChange={(e) => setEditing({ ...editing, price_delivery: e.target.value })}
                                 />
                               </div>
                               <div className="menu-mgmt__edit-row__actions">
@@ -600,8 +700,15 @@ export function MenuManagementPanel() {
                                     title={item.is_available ? "Aktif" : "Pasif"}
                                   />
                                   <strong>{item.name}</strong>
-                                  <span className="menu-mgmt__price-badge">
-                                    {formatTry(item.price)}
+                                  <span className="menu-mgmt__price-badge" title="Tezgah Satış Fiyatı">
+                                    Tezgah: {formatTry(item.price)}
+                                  </span>
+                                  <span
+                                    className="menu-mgmt__price-badge"
+                                    title="Paket Satış Fiyatı"
+                                    style={{ background: "#ffedd5", color: "#9a3412", borderColor: "#fed7aa" }}
+                                  >
+                                    Paket: {formatTry(item.price_delivery != null ? item.price_delivery : item.price)}
                                   </span>
                                 </div>
                                 {item.description && (
@@ -629,6 +736,7 @@ export function MenuManagementPanel() {
                                       category_id: item.category_id,
                                       description: item.description ?? "",
                                       price: String(item.price),
+                                      price_delivery: item.price_delivery != null ? String(item.price_delivery) : String(item.price),
                                       is_available: item.is_available,
                                     })
                                   }

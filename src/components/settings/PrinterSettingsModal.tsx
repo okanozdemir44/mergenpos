@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { getPrinters } from "../../lib/qz";
 import {
   printReceiptHtml,
   generateTestReceiptHtml,
@@ -14,6 +13,8 @@ import {
   setAutoPrintEnabled,
   isSavePdfDebugEnabled,
   setSavePdfDebugEnabled,
+  getUnifiedPrinters,
+  isQzNotRunning,
 } from "../../lib/unified-printer";
 
 interface PrinterSettingsModalProps {
@@ -31,6 +32,7 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
   const [printers, setPrinters] = useState<PrinterItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isListLoaded, setIsListLoaded] = useState(false);
 
   const [kasaPrinter, setKasaPrinter] = useState("");
   const [mutfakPrinter, setMutfakPrinter] = useState("");
@@ -85,15 +87,20 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
       if (typeof window !== "undefined" && window.desktopAPI?.print) {
         const desktopList = await window.desktopAPI.print.listPrinters();
         setPrinters(desktopList);
+        setIsListLoaded(true);
         return;
       }
 
-      // Tarayıcı ortamındaysa QZ Tray üzerinden al
-      const list = await getPrinters();
+      // Tarayıcı ortamındaysa QZ Tray üzerinden al (önce ensureQzConnected çalışır)
+      const list = await getUnifiedPrinters();
       setPrinters(list.map((name) => ({ name, status: 0 })));
+      setIsListLoaded(true);
     } catch (err: any) {
+      setIsListLoaded(false);
       if (desktopAvailable || (typeof window !== "undefined" && window.desktopAPI?.print)) {
         setError(`Masaüstü yazıcı listesi alınamadı: ${err.message || String(err)}`);
+      } else if (isQzNotRunning(err)) {
+        setError("QZ Tray çalışmıyor ya da bağlanamadı. Görev çubuğunda QZ simgesini kontrol edin, yoksa QZ Tray'i başlatın. QZ'de izin penceresi açıksa 'Allow' deyin.");
       } else {
         setError(err.message || "Yazıcılar yüklenemedi. QZ Tray açık mı?");
       }
@@ -112,8 +119,9 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
     onClose();
   }
 
-  function getPrinterStatus(name: string): "ready" | "offline" | "not_found" | "none" {
+  function getPrinterStatus(name: string): "ready" | "offline" | "not_found" | "list_failed" | "none" {
     if (!name) return "none";
+    if (!isListLoaded) return "list_failed";
     const found = printers.find(
       (p) => p.name.toLowerCase() === name.toLowerCase() || (p.displayName && p.displayName.toLowerCase() === name.toLowerCase())
     );
@@ -123,8 +131,29 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
     return "offline";
   }
 
-  function renderStatusBadge(status: "ready" | "offline" | "not_found" | "none") {
+  function renderStatusBadge(status: "ready" | "offline" | "not_found" | "list_failed" | "none") {
     if (status === "none") return null;
+    if (status === "list_failed") {
+      return (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+            fontSize: "0.74rem",
+            fontWeight: 700,
+            color: "#64748b",
+            background: "#f1f5f9",
+            border: "1px solid #cbd5e1",
+            padding: "0.15rem 0.5rem",
+            borderRadius: "999px",
+          }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#94a3b8" }} />
+          Liste yüklenemedi
+        </span>
+      );
+    }
     if (status === "ready") {
       return (
         <span
@@ -207,7 +236,11 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
       });
       setTestMessage(`✓ ${roleName} test fişi "${targetPrinter}" yazıcısına başarıyla gönderildi.`);
     } catch (err: any) {
-      setTestMessage(`❌ ${roleName} test fişi basılamadı: ${err?.message || String(err)}`);
+      if (isQzNotRunning(err)) {
+        setTestMessage(`❌ ${roleName} test fişi basılamadı: QZ Tray çalışmıyor ya da bağlanamadı. Lütfen QZ Tray uygulamasını başlatın.`);
+      } else {
+        setTestMessage(`❌ ${roleName} test fişi basılamadı: ${err?.message || String(err)}`);
+      }
     } finally {
       setTestPrintingRole(null);
     }
@@ -414,7 +447,9 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
               );
             })}
             {kasaPrinter && !printers.some((p) => p.name.toLowerCase() === kasaPrinter.toLowerCase()) && (
-              <option value={kasaPrinter}>{kasaPrinter} [Listede yok]</option>
+              <option value={kasaPrinter}>
+                {kasaPrinter} {isListLoaded ? "[Listede yok]" : "(Kayıtlı - Liste yüklenemedi)"}
+              </option>
             )}
           </select>
 
@@ -484,7 +519,9 @@ export default function PrinterSettingsModal({ onClose }: PrinterSettingsModalPr
               );
             })}
             {mutfakPrinter && !printers.some((p) => p.name.toLowerCase() === mutfakPrinter.toLowerCase()) && (
-              <option value={mutfakPrinter}>{mutfakPrinter} [Listede yok]</option>
+              <option value={mutfakPrinter}>
+                {mutfakPrinter} {isListLoaded ? "[Listede yok]" : "(Kayıtlı - Liste yüklenemedi)"}
+              </option>
             )}
           </select>
 

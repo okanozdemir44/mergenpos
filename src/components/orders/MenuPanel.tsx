@@ -1,16 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { MenuCategory, MenuItem } from "@/types/pos";
+import type { CartOrderType, MenuCategory, MenuItem } from "@/types/pos";
 import { formatTry } from "@/lib/money";
+import { getMenuItemPrice } from "@/lib/pricing";
 
 type Props = {
   categories: MenuCategory[];
   items: MenuItem[];
+  orderType?: CartOrderType;
   onAdd: (item: MenuItem) => void;
 };
 
-export function MenuPanel({ categories, items, onAdd }: Props) {
+export function MenuPanel({ categories, items, orderType = "STORE", onAdd }: Props) {
   const [activeCategoryId, setActiveCategoryId] = useState<string | "all">("all");
 
   const filtered = useMemo(() => {
@@ -68,20 +70,25 @@ export function MenuPanel({ categories, items, onAdd }: Props) {
             <div key={category.id} className="order-category-block">
               <h2 className="order-category-title">{category.name}</h2>
               <div className="order-item-grid">
-                {catItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="order-item-card"
-                    onClick={() => onAdd(item)}
-                  >
-                    <span className="order-item-card__name">{item.name}</span>
-                    {item.description && (
-                      <span className="order-item-card__desc">{item.description}</span>
-                    )}
-                    <span className="order-item-card__price">{formatTry(Number(item.price))}</span>
-                  </button>
-                ))}
+                {catItems.map((item) => {
+                  const activePrice = getMenuItemPrice(item, orderType);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="order-item-card"
+                      onClick={() => onAdd(item)}
+                    >
+                      <span className="order-item-card__name">{item.name}</span>
+                      {item.description && (
+                        <span className="order-item-card__desc">{item.description}</span>
+                      )}
+                      <span className="order-item-card__price">
+                        {formatTry(activePrice)}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))

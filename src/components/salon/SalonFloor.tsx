@@ -7,9 +7,12 @@ import { useStaffSession } from "@/hooks/useStaffSession";
 import { MenuPanel } from "@/components/orders/MenuPanel";
 import { CartPanel, type OrderChannel } from "@/components/orders/CartPanel";
 import { ThermalReceipt, type ThermalReceiptProps } from "@/components/receipt/ThermalReceipt";
+import { PrintFailureModal } from "@/components/receipt/PrintFailureModal";
 import { ServiceKanban } from "@/components/service/ServiceKanban";
 import { useBranding } from "@/context/BrandingContext";
-import type { CartLine, MenuCategory, MenuItem, PaymentMethod } from "@/types/pos";
+import { isDesktopPrinterAvailable } from "@/lib/unified-printer";
+import type { CartLine, CartOrderType, MenuCategory, MenuItem, PaymentMethod } from "@/types/pos";
+import { getMenuItemPrice, recalculateCartPrices } from "@/lib/pricing";
 
 type ActiveTab = "salon" | "service";
 
@@ -29,13 +32,15 @@ export function SalonFloor() {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [orderChannel, setOrderChannel] = useState<OrderChannel>("GEL AL");
+  const [orderType, setOrderType] = useState<CartOrderType>("STORE");
+  const [orderChannel, setOrderChannel] = useState<OrderChannel>("TEZGAH");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [lastOrder, setLastOrder] = useState<{ orderNumber: number | string; time: string } | null>(null);
   const [receiptData, setReceiptData] = useState<ThermalReceiptProps | null>(null);
+  const [printFailure, setPrintFailure] = useState<{ isOpen: boolean; message: string; receipt: ThermalReceiptProps } | null>(null);
 
   const cartRef = useRef(cart);
   cartRef.current = cart;
@@ -55,7 +60,7 @@ export function SalonFloor() {
     setLoading(true);
     setError(null);
 
-    const [catRes, itemRes] = await Promise.all([
+    const [catRes, itemResInitial] = await Promise.all([
       supabase
         .from("menu_categories")
         .select("id, restaurant_id, name, sort_order")
@@ -63,20 +68,38 @@ export function SalonFloor() {
         .order("sort_order", { ascending: true }),
       supabase
         .from("menu_items")
-        .select("id, restaurant_id, category_id, name, price, description, is_available, sort_order")
+        .select("id, restaurant_id, category_id, name, price, price_store, price_delivery, description, is_available, sort_order")
         .eq("restaurant_id", restaurantId)
         .order("sort_order", { ascending: true }),
     ]);
 
-    if (catRes.error || itemRes.error) {
-      setError(catRes.error?.message ?? itemRes.error?.message ?? "Menü yüklenirken hata oluştu");
+    let itemsData = itemResInitial.data as any[] | null;
+    let itemError = itemResInitial.error;
+    // Fallback if price_delivery or price_store columns are not yet present in DB
+    if (itemError && /price_delivery|price_store/i.test(itemError.message)) {
+      const fallback = await supabase
+        .from("menu_items")
+        .select("id, restaurant_id, category_id, name, price, description, is_available, sort_order")
+        .eq("restaurant_id", restaurantId)
+        .order("sort_order", { ascending: true });
+      itemsData = fallback.data as any[] | null;
+      itemError = fallback.error;
+    }
+
+    if (catRes.error || itemError) {
+      setError(catRes.error?.message ?? itemError?.message ?? "Menü yüklenirken hata oluştu");
       setLoading(false);
       return;
     }
 
     setCategories((catRes.data ?? []) as MenuCategory[]);
     setItems(
-      ((itemRes.data ?? []) as MenuItem[]).map((i) => ({ ...i, price: Number(i.price) })),
+      ((itemsData ?? []) as any[]).map((i) => ({
+        ...i,
+        price: Number(i.price),
+        price_store: i.price_store != null ? Number(i.price_store) : Number(i.price),
+        price_delivery: i.price_delivery != null ? Number(i.price_delivery) : null,
+      })),
     );
     setLoading(false);
   }, []);
@@ -101,6 +124,7 @@ export function SalonFloor() {
   }, [lastOrder]);
 
   function handleAddItem(item: MenuItem) {
+    const activePrice = getMenuItemPrice(item, orderType);
     setCart((prev) => {
       const existing = prev.find((l) => l.menuItemId === item.id && !l.note);
       if (existing) {
@@ -114,12 +138,18 @@ export function SalonFloor() {
           key: newLineKey(item.id),
           menuItemId: item.id,
           name: item.name,
-          unitPrice: Number(item.price),
+          unitPrice: activePrice,
           quantity: 1,
           note: "",
         },
       ];
     });
+  }
+
+  function handleOrderTypeChange(newOrderType: CartOrderType) {
+    setOrderType(newOrderType);
+    setOrderChannel(newOrderType === "DELIVERY" ? "PAKET" : "TEZGAH");
+    setCart((prevCart) => recalculateCartPrices(prevCart, items, newOrderType));
   }
 
   function handleChangeQty(key: string, delta: number) {
@@ -146,6 +176,7 @@ export function SalonFloor() {
 
   function handleReprintLastReceipt() {
     if (receiptData) {
+      console.log("[print] path=browser result=ok");
       window.print();
     }
   }
@@ -182,7 +213,7 @@ export function SalonFloor() {
         .gte("created_at", todayStart.toISOString());
 
       const nextOrderNumber = (count ?? 0) + 1;
-      const orderTypeDb = selectedChannel === "GEL AL" ? "takeaway" : "dine_in";
+      const orderTypeDb = orderType === "DELIVERY" ? "delivery" : (selectedChannel === "GEL AL" ? "takeaway" : "dine_in");
 
       // 1. orders tablosuna kayıt
       let insertPayload: Record<string, unknown> = {
@@ -258,7 +289,8 @@ export function SalonFloor() {
           second: "2-digit",
         }),
         cashierName: staff.name,
-        orderChannel: selectedChannel,
+        orderChannel: orderType === "DELIVERY" ? "PAKET" : selectedChannel,
+        orderType: orderType,
         items: cartSnapshot.map((line) => ({
           quantity: line.quantity,
           unit: "Tam",
@@ -274,7 +306,7 @@ export function SalonFloor() {
         orderNumber: assignedNumber,
       };
 
-      // 4. QZ Tray Üzerinden Yazdırma İşlemi
+      // 4. Yazdırma İşlemi (Masaüstü vs QZ Tray)
       const kasaPrinter = localStorage.getItem("PRINTER_KASA");
       const mutfakPrinter = localStorage.getItem("PRINTER_MUTFAK");
       
@@ -287,40 +319,60 @@ export function SalonFloor() {
         });
       };
 
-      if (kasaPrinter || mutfakPrinter) {
-        try {
+      // Sipariş ve ödeme DB'ye kaydedildi, sepeti hemen sıfırla (yazıcı hatası siparişi engellemez)
+      resetAfterPrint();
+      setReceiptData(newReceipt);
+
+      const isDesktop = isDesktopPrinterAvailable();
+      if (isDesktop) {
+        // Electron içindeyse mevcut davranışı koru
+        if (kasaPrinter || mutfakPrinter) {
+          try {
+            const { printReceiptHtml, getOrFetchReceiptSettings } = await import("../../lib/unified-printer");
+            const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("../../lib/receipt-generators");
+            const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
+
+            if (kasaPrinter) {
+              const kasaHtml = generateCashierReceiptHtml(newReceipt, receiptSettings);
+              await printReceiptHtml(kasaPrinter, kasaHtml).catch(e => console.error("Kasa yazıcı hatası:", e));
+            }
+            if (mutfakPrinter) {
+              const mutfakHtml = generateKitchenReceiptHtml(newReceipt, receiptSettings);
+              await printReceiptHtml(mutfakPrinter, mutfakHtml).catch(e => console.error("Mutfak yazıcı hatası:", e));
+            }
+          } catch (error) {
+            console.error("Masaüstü yazıcı hatası:", error);
+          }
+        }
+      } else {
+        // Tarayıcı ortamında QZ Tray ile yazdır (başarısız olursa otomatik window.print'e düşme, modal göster)
+        const tryQzPrint = async (receiptToPrint: ThermalReceiptProps) => {
           const { printReceiptHtml, getOrFetchReceiptSettings } = await import("../../lib/unified-printer");
           const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("../../lib/receipt-generators");
           const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
 
           if (kasaPrinter) {
-            const kasaHtml = generateCashierReceiptHtml(newReceipt, receiptSettings);
-            await printReceiptHtml(kasaPrinter, kasaHtml).catch(e => console.error("Kasa yazıcı hatası:", e));
+            const kasaHtml = generateCashierReceiptHtml(receiptToPrint, receiptSettings);
+            await printReceiptHtml(kasaPrinter, kasaHtml);
           }
-          
           if (mutfakPrinter) {
-            const mutfakHtml = generateKitchenReceiptHtml(newReceipt, receiptSettings);
-            await printReceiptHtml(mutfakPrinter, mutfakHtml).catch(e => console.error("Mutfak yazıcı hatası:", e));
+            const mutfakHtml = generateKitchenReceiptHtml(receiptToPrint, receiptSettings);
+            await printReceiptHtml(mutfakPrinter, mutfakHtml);
           }
-          
-          resetAfterPrint();
-        } catch (error) {
-          console.error("QZ Tray Hatası:", error);
-          setError("Yazıcıya bağlanılamadı. QZ Tray açık mı?");
-          resetAfterPrint();
-        }
-      } else {
-        // Fallback: Eski tarayıcı yazdırma yöntemi
-        setReceiptData(newReceipt);
-        const onAfterPrint = () => {
-          resetAfterPrint();
-          window.removeEventListener("afterprint", onAfterPrint);
+          if (!kasaPrinter && !mutfakPrinter) {
+            throw new Error("Yazıcı seçilmemiş");
+          }
         };
-        window.addEventListener("afterprint", onAfterPrint);
-        setTimeout(() => {
-          window.print();
-          setTimeout(onAfterPrint, 1500); // fallback
-        }, 150);
+
+        try {
+          await tryQzPrint(newReceipt);
+        } catch {
+          setPrintFailure({
+            isOpen: true,
+            message: "Fiş yazıcısına ulaşılamadı: QZ Tray çalışmıyor.",
+            receipt: newReceipt,
+          });
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "İşlem sırasında bir hata oluştu";
@@ -427,7 +479,12 @@ export function SalonFloor() {
               </div>
             )}
 
-            <MenuPanel categories={categories} items={items} onAdd={handleAddItem} />
+            <MenuPanel
+              categories={categories}
+              items={items}
+              orderType={orderType}
+              onAdd={handleAddItem}
+            />
           </div>
 
           {/* SAĞ ALAN: Sepet, Sipariş Kanalı ve Ödeme Al Butonu */}
@@ -436,6 +493,8 @@ export function SalonFloor() {
             total={total}
             submitting={submitting}
             error={error}
+            orderType={orderType}
+            onChangeOrderType={handleOrderTypeChange}
             orderChannel={orderChannel}
             onChangeOrderChannel={setOrderChannel}
             paymentMethod={paymentMethod}
@@ -455,6 +514,36 @@ export function SalonFloor() {
           <ServiceKanban orderType="delivery" hideHeader />
         </div>
       )}
+
+      {/* Yazıcı Bağlantı Hatası Modalı (Yalnızca tarayıcı ortamında) */}
+      <PrintFailureModal
+        isOpen={Boolean(printFailure?.isOpen)}
+        message={printFailure?.message}
+        onRetry={async () => {
+          if (printFailure?.receipt) {
+            const kasaPrinter = localStorage.getItem("PRINTER_KASA");
+            const mutfakPrinter = localStorage.getItem("PRINTER_MUTFAK");
+            const { printReceiptHtml, getOrFetchReceiptSettings } = await import("../../lib/unified-printer");
+            const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("../../lib/receipt-generators");
+            const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
+            if (kasaPrinter) {
+              const kasaHtml = generateCashierReceiptHtml(printFailure.receipt, receiptSettings);
+              await printReceiptHtml(kasaPrinter, kasaHtml);
+            }
+            if (mutfakPrinter) {
+              const mutfakHtml = generateKitchenReceiptHtml(printFailure.receipt, receiptSettings);
+              await printReceiptHtml(mutfakPrinter, mutfakHtml);
+            }
+            setPrintFailure(null);
+          }
+        }}
+        onBrowserPrint={() => {
+          console.log("[print] path=browser result=ok");
+          window.print();
+          setPrintFailure(null);
+        }}
+        onClose={() => setPrintFailure(null)}
+      />
     </>
   );
 }

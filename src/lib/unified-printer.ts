@@ -9,7 +9,117 @@
  *    -> Mevcut QZ Tray servisine (src/lib/qz.ts) güvenli bir şekilde yedeklenir.
  */
 
-import { printHtml as printHtmlQz } from "./qz";
+import * as qz from "qz-tray";
+import { connectQZ, printHtml as printHtmlQz } from "./qz";
+
+export class QzNotRunningError extends Error {
+  code = "QZ_NOT_RUNNING";
+  constructor(message = "QZ Tray çalışmıyor ya da bağlanamadı.") {
+    super(message);
+    this.name = "QzNotRunningError";
+  }
+}
+
+export function isQzNotRunning(err: unknown): boolean {
+  if (!err) return false;
+  const code = (err as any)?.code;
+  const name = (err as any)?.name;
+  const msg = String((err as any)?.message || err);
+  return (
+    code === "QZ_NOT_RUNNING" ||
+    name === "QzNotRunningError" ||
+    msg.includes("QZ_NOT_RUNNING") ||
+    msg.includes("sendData") ||
+    msg.includes("has not been established yet") ||
+    msg.includes("QZ Tray uygulamasına bağlanılamadı") ||
+    msg.includes("QZ Tray açık mı") ||
+    msg.includes("Connection closed")
+  );
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("QZ_CONNECT_TIMEOUT"));
+    }, ms);
+    promise.then(
+      (res) => {
+        clearTimeout(timer);
+        resolve(res);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+/**
+ * QZ Tray bağlantısını güvenceye alır.
+ * Zaten bağlıysa hemen döner; değilse 5 sn zaman aşımı ile bağlanmayı dener (1 kez yeniden dener).
+ * Bağlanamazsa QzNotRunningError (code: QZ_NOT_RUNNING) fırlatır.
+ */
+export async function ensureQzConnected(): Promise<void> {
+  if (typeof window === "undefined") {
+    throw new QzNotRunningError("Tarayıcı ortamı dışında QZ çalıştırılamaz.");
+  }
+
+  // 1. Zaten bağlıysa hemen dön
+  try {
+    if (qz.websocket && typeof qz.websocket.isActive === "function" && qz.websocket.isActive()) {
+      return;
+    }
+  } catch {
+    // isActive() hatasında bağlanmayı dene
+  }
+
+  const attemptConnect = async () => {
+    await withTimeout(connectQZ(), 5000);
+  };
+
+  try {
+    await attemptConnect();
+    return;
+  } catch (firstErr) {
+    console.warn("[QZ] İlk bağlantı denemesi başarısız, bir kez yeniden deneniyor...", firstErr);
+  }
+
+  try {
+    await attemptConnect();
+    return;
+  } catch (secondErr) {
+    console.error("[QZ] İkinci bağlantı denemesi de başarısız oldu:", secondErr);
+    throw new QzNotRunningError("QZ Tray çalışmıyor ya da bağlanamadı.");
+  }
+}
+
+/**
+ * QZ Tray yazıcı listesini güvenle alır (öncesinde ensureQzConnected çağrılır).
+ */
+export async function getUnifiedPrinters(): Promise<string[]> {
+  await ensureQzConnected();
+  const printers = await qz.printers.find();
+  return Array.isArray(printers) ? printers : [printers];
+}
+
+/**
+ * Tarayıcı üzerinden fiş yazdırma penceresi açar ve konsola tek satır log basar.
+ */
+export function printHtmlViaBrowserWindow(html: string): void {
+  console.log("[print] path=browser result=ok");
+  if (typeof window === "undefined") return;
+  const browserHtml = html.includes("<script")
+    ? html
+    : html.replace("</body>", "<script>window.onload=()=>{window.print();}</script></body>");
+  const w = window.open("", "_blank", "noopener,noreferrer,width=420,height=640");
+  if (w) {
+    w.document.write(browserHtml);
+    w.document.close();
+  } else {
+    window.print();
+  }
+}
 
 export interface UnifiedPrintOptions {
   paperWidthMm?: number;
@@ -149,11 +259,14 @@ export async function printReceiptHtml(
       });
 
       if (res.success) {
+        console.log("[print] path=desktop result=ok");
         return;
       }
+      console.log("[print] path=desktop result=error");
       console.warn("[UnifiedPrinter] Masaüstü yazdırma başarısız oldu, QZ Tray'e yedekleniyor:", res.error);
       notifyPrinterWarning(printerName, res.error);
     } catch (desktopErr: any) {
+      console.log("[print] path=desktop result=error");
       console.warn("[UnifiedPrinter] Masaüstü yazdırma çağrı hatası, QZ Tray'e yedekleniyor:", desktopErr);
       notifyPrinterWarning(printerName, desktopErr?.message || String(desktopErr));
     }
@@ -161,8 +274,15 @@ export async function printReceiptHtml(
 
   // 2. QZ Tray ile yazdır (tarayıcı veya masaüstü yedeği)
   try {
+    await ensureQzConnected();
     await printHtmlQz(printerName, trimmedHtml);
+    console.log("[print] path=qz result=ok");
   } catch (qzErr: any) {
+    if (isQzNotRunning(qzErr)) {
+      console.log("[print] path=qz result=QZ_NOT_RUNNING");
+    } else {
+      console.log("[print] path=qz result=error");
+    }
     notifyPrinterWarning(printerName, qzErr?.message || String(qzErr));
     throw qzErr;
   }

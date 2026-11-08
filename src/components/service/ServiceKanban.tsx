@@ -6,6 +6,8 @@ import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase-browser";
 import { useStaffSession } from "@/hooks/useStaffSession";
 import { formatTry } from "@/lib/money";
+import { PrintFailureModal } from "@/components/receipt/PrintFailureModal";
+import { isDesktopPrinterAvailable, printHtmlViaBrowserWindow } from "@/lib/unified-printer";
 import type { OrderRow, OrderStatus, OrderType } from "@/types/pos";
 
 type Column = {
@@ -102,6 +104,7 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(false);
+  const [printFailure, setPrintFailure] = useState<{ isOpen: boolean; message: string; receipt: any } | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -251,17 +254,47 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
       const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
       const mutfakPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_MUTFAK") : null;
 
-      if (kasaPrinter || mutfakPrinter) {
-        const { printReceiptHtml, getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
-        const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("@/lib/receipt-generators");
-        const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
-        if (kasaPrinter) {
-          const kasaHtml = generateCashierReceiptHtml(receipt, receiptSettings);
-          await printReceiptHtml(kasaPrinter, kasaHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
+      const isDesktop = isDesktopPrinterAvailable();
+      if (isDesktop) {
+        if (kasaPrinter || mutfakPrinter) {
+          const { printReceiptHtml, getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
+          const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("@/lib/receipt-generators");
+          const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
+          if (kasaPrinter) {
+            const kasaHtml = generateCashierReceiptHtml(receipt, receiptSettings);
+            await printReceiptHtml(kasaPrinter, kasaHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
+          }
+          if (mutfakPrinter) {
+            const mutfakHtml = generateKitchenReceiptHtml(receipt, receiptSettings);
+            await printReceiptHtml(mutfakPrinter, mutfakHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
+          }
         }
-        if (mutfakPrinter) {
-          const mutfakHtml = generateKitchenReceiptHtml(receipt, receiptSettings);
-          await printReceiptHtml(mutfakPrinter, mutfakHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
+      } else {
+        const doKanbanPrint = async (r: any) => {
+          const { printReceiptHtml, getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
+          const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("@/lib/receipt-generators");
+          const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
+          if (kasaPrinter) {
+            const kasaHtml = generateCashierReceiptHtml(r, receiptSettings);
+            await printReceiptHtml(kasaPrinter, kasaHtml);
+          }
+          if (mutfakPrinter) {
+            const mutfakHtml = generateKitchenReceiptHtml(r, receiptSettings);
+            await printReceiptHtml(mutfakPrinter, mutfakHtml);
+          }
+          if (!kasaPrinter && !mutfakPrinter) {
+            throw new Error("Yazıcı seçilmemiş");
+          }
+        };
+
+        try {
+          await doKanbanPrint(receipt);
+        } catch {
+          setPrintFailure({
+            isOpen: true,
+            message: "Fiş yazıcısına ulaşılamadı: QZ Tray çalışmıyor.",
+            receipt,
+          });
         }
       }
     } catch (err) {
@@ -449,6 +482,39 @@ export function ServiceKanban({ orderType, hideHeader = false }: Props) {
           })}
         </div>
       )}
+
+      <PrintFailureModal
+        isOpen={Boolean(printFailure?.isOpen)}
+        message={printFailure?.message}
+        onRetry={async () => {
+          if (printFailure?.receipt) {
+            const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
+            const mutfakPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_MUTFAK") : null;
+            const { printReceiptHtml, getOrFetchReceiptSettings } = await import("@/lib/unified-printer");
+            const { generateCashierReceiptHtml, generateKitchenReceiptHtml } = await import("@/lib/receipt-generators");
+            const receiptSettings = await getOrFetchReceiptSettings(staff?.restaurant_id);
+            if (kasaPrinter) {
+              const kasaHtml = generateCashierReceiptHtml(printFailure.receipt, receiptSettings);
+              await printReceiptHtml(kasaPrinter, kasaHtml);
+            }
+            if (mutfakPrinter) {
+              const mutfakHtml = generateKitchenReceiptHtml(printFailure.receipt, receiptSettings);
+              await printReceiptHtml(mutfakPrinter, mutfakHtml);
+            }
+            setPrintFailure(null);
+          }
+        }}
+        onBrowserPrint={async () => {
+          if (printFailure?.receipt) {
+            const { generateCashierReceiptHtml } = await import("@/lib/receipt-generators");
+            const { getCachedReceiptSettings } = await import("@/lib/unified-printer");
+            const html = generateCashierReceiptHtml(printFailure.receipt, getCachedReceiptSettings());
+            printHtmlViaBrowserWindow(html);
+          }
+          setPrintFailure(null);
+        }}
+        onClose={() => setPrintFailure(null)}
+      />
     </div>
   );
 }

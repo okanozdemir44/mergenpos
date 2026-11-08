@@ -1,15 +1,17 @@
 "use client";
 
-import { PAYMENT_METHOD_LABEL, type CartLine, type PaymentMethod } from "@/types/pos";
+import { PAYMENT_METHOD_LABEL, type CartLine, type CartOrderType, type PaymentMethod } from "@/types/pos";
 import { formatTry } from "@/lib/money";
 
-export type OrderChannel = "TEZGAH" | "GEL AL";
+export type OrderChannel = "TEZGAH" | "GEL AL" | "PAKET";
 
 type CartProps = {
   lines: CartLine[];
   total: number;
   submitting: boolean;
   error: string | null;
+  orderType?: CartOrderType;
+  onChangeOrderType?: (type: CartOrderType) => void;
   orderChannel?: OrderChannel;
   onChangeOrderChannel?: (channel: OrderChannel) => void;
   paymentMethod?: PaymentMethod;
@@ -26,7 +28,9 @@ export function CartPanel({
   total,
   submitting,
   error,
-  orderChannel = "GEL AL",
+  orderType = "STORE",
+  onChangeOrderType,
+  orderChannel = "TEZGAH",
   onChangeOrderChannel,
   paymentMethod = "cash",
   onChangePaymentMethod,
@@ -36,11 +40,40 @@ export function CartPanel({
   onClear,
   onSubmit,
 }: CartProps) {
+  // Aktif mod (orderType veya orderChannel ile senkron)
+  const isDelivery = orderType === "DELIVERY" || orderChannel === "PAKET";
+
+  function handleSelectType(type: CartOrderType) {
+    if (onChangeOrderType) {
+      onChangeOrderType(type);
+    }
+    if (onChangeOrderChannel) {
+      onChangeOrderChannel(type === "DELIVERY" ? "PAKET" : "TEZGAH");
+    }
+  }
+
   return (
     <aside className="order-cart adisyon__cart">
       <div className="order-cart__head">
         <div>
-          <h2 className="order-cart__title">Adisyon / Sepet</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <h2 className="order-cart__title" style={{ margin: 0 }}>Adisyon / Sepet</h2>
+            {isDelivery && (
+              <span
+                style={{
+                  backgroundColor: "#fee2e2",
+                  color: "#b91c1c",
+                  fontSize: "0.7rem",
+                  fontWeight: 800,
+                  padding: "2px 6px",
+                  borderRadius: "4px",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                PAKET FİYATI
+              </span>
+            )}
+          </div>
           <span className="salon-muted">{lines.length} kalem ürün</span>
         </div>
         {lines.length > 0 && onClear && (
@@ -55,14 +88,14 @@ export function CartPanel({
         )}
       </div>
 
-      {/* Sipariş Kanalı Seçimi (Tezgah / Gel Al) */}
-      {onChangeOrderChannel && (
+      {/* Sipariş Modu / Tipi Seçimi (Tezgah / Paket) */}
+      {(onChangeOrderType || onChangeOrderChannel) && (
         <div style={{ padding: "0.65rem 0.85rem 0" }}>
           <div className="order-cart__channel-select">
             <button
               type="button"
-              className={`channel-btn ${orderChannel === "TEZGAH" ? "channel-btn--active" : ""}`}
-              onClick={() => onChangeOrderChannel("TEZGAH")}
+              className={`channel-btn ${!isDelivery ? "channel-btn--active" : ""}`}
+              onClick={() => handleSelectType("STORE")}
               disabled={submitting}
             >
               <span>🍔</span>
@@ -70,12 +103,12 @@ export function CartPanel({
             </button>
             <button
               type="button"
-              className={`channel-btn ${orderChannel === "GEL AL" ? "channel-btn--active" : ""}`}
-              onClick={() => onChangeOrderChannel("GEL AL")}
+              className={`channel-btn ${isDelivery ? "channel-btn--active" : ""}`}
+              onClick={() => handleSelectType("DELIVERY")}
               disabled={submitting}
             >
-              <span>🛍️</span>
-              <span>Gel Al</span>
+              <span>🛵</span>
+              <span>Paket</span>
             </button>
           </div>
         </div>

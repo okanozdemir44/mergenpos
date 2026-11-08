@@ -7,6 +7,8 @@ import { createBrowserClient } from "@/lib/supabase-browser";
 import { useStaffSession } from "@/hooks/useStaffSession";
 import { MenuPanel } from "@/components/orders/MenuPanel";
 import { BillCloseModal } from "@/components/billing/BillCloseModal";
+import { PrintFailureModal } from "@/components/receipt/PrintFailureModal";
+import { isDesktopPrinterAvailable, printHtmlViaBrowserWindow } from "@/lib/unified-printer";
 import { formatTry } from "@/lib/money";
 import { TABLE_STATUS_LABEL } from "@/types/pos";
 import type {
@@ -17,6 +19,7 @@ import type {
   PaymentMethod,
   RestaurantTable,
 } from "@/types/pos";
+import { getMenuItemPrice } from "@/lib/pricing";
 
 type Props = { tableId: string };
 
@@ -42,6 +45,13 @@ export function OrderEntryScreen({ tableId }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [billingBusy, setBillingBusy] = useState(false);
+  const [printFailure, setPrintFailure] = useState<{
+    isOpen: boolean;
+    message: string;
+    printerName: string;
+    html: string;
+    onFinished?: () => void;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const draftTotal = useMemo(
@@ -114,7 +124,7 @@ export function OrderEntryScreen({ tableId }: Props) {
       setLoading(true);
       setLoadError(null);
 
-      const [tableRes, catRes, itemRes, restRes] = await Promise.all([
+      const [tableRes, catRes, itemResInitial, restRes] = await Promise.all([
         supabase
           .from("restaurant_tables")
           .select("id, restaurant_id, name, status, created_at")
@@ -129,12 +139,24 @@ export function OrderEntryScreen({ tableId }: Props) {
         supabase
           .from("menu_items")
           .select(
-            "id, restaurant_id, category_id, name, price, description, is_available, sort_order",
+            "id, restaurant_id, category_id, name, price, price_store, price_delivery, description, is_available, sort_order",
           )
           .eq("restaurant_id", restaurantId)
           .order("sort_order", { ascending: true }),
         supabase.from("restaurants").select("name").eq("id", restaurantId).maybeSingle(),
       ]);
+
+      let itemsData = itemResInitial.data as any[] | null;
+      if (itemResInitial.error && /price_delivery|price_store/i.test(itemResInitial.error.message)) {
+        const fallbackRes = await supabase
+          .from("menu_items")
+          .select(
+            "id, restaurant_id, category_id, name, price, description, is_available, sort_order",
+          )
+          .eq("restaurant_id", restaurantId)
+          .order("sort_order", { ascending: true });
+        itemsData = fallbackRes.data as any[] | null;
+      }
 
       if (tableRes.error || !tableRes.data) {
         setLoadError(tableRes.error?.message ?? "Masa bulunamadı");
@@ -146,7 +168,12 @@ export function OrderEntryScreen({ tableId }: Props) {
       setRestaurantName(restRes.data?.name ?? "Restoran");
       setCategories((catRes.data ?? []) as MenuCategory[]);
       setItems(
-        ((itemRes.data ?? []) as MenuItem[]).map((i) => ({ ...i, price: Number(i.price) })),
+        ((itemsData ?? []) as any[]).map((i) => ({
+          ...i,
+          price: Number(i.price),
+          price_store: i.price_store != null ? Number(i.price_store) : Number(i.price),
+          price_delivery: i.price_delivery != null ? Number(i.price_delivery) : null,
+        })),
       );
       await loadAdisyon(restaurantId);
       setLoading(false);
@@ -165,6 +192,7 @@ export function OrderEntryScreen({ tableId }: Props) {
   }, [staffLoading, userId, staff, load, router, tableId]);
 
   function addItem(item: MenuItem) {
+    const unitPrice = getMenuItemPrice(item, "STORE");
     setDraft((prev) => {
       const existing = prev.find((l) => l.menuItemId === item.id && !l.note);
       if (existing) {
@@ -178,7 +206,7 @@ export function OrderEntryScreen({ tableId }: Props) {
           key: newLineKey(item.id),
           menuItemId: item.id,
           name: item.name,
-          unitPrice: Number(item.price),
+          unitPrice,
           quantity: 1,
           note: "",
         },
@@ -269,7 +297,20 @@ export function OrderEntryScreen({ tableId }: Props) {
           changeAmount: 0,
         };
         const kitchenHtml = generateKitchenReceiptHtml(kitchenReceiptData, receiptSettings);
-        await printReceiptHtml(mutfakPrinter, kitchenHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
+        if (isDesktopPrinterAvailable()) {
+          await printReceiptHtml(mutfakPrinter, kitchenHtml).catch((e) => console.error("Mutfak yazıcı hatası:", e));
+        } else {
+          try {
+            await printReceiptHtml(mutfakPrinter, kitchenHtml);
+          } catch {
+            setPrintFailure({
+              isOpen: true,
+              message: "Fiş yazıcısına ulaşılamadı: QZ Tray çalışmıyor.",
+              printerName: mutfakPrinter,
+              html: kitchenHtml,
+            });
+          }
+        }
       } catch (printErr) {
         console.error("Mutfak fişi basılamadı:", printErr);
       }
@@ -365,14 +406,35 @@ export function OrderEntryScreen({ tableId }: Props) {
           changeAmount: 0,
         };
         const cashierHtml = generateCashierReceiptHtml(cashierReceiptData, receiptSettings);
-        await printReceiptHtml(kasaPrinter, cashierHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
+        if (isDesktopPrinterAvailable()) {
+          await printReceiptHtml(kasaPrinter, cashierHtml).catch((e) => console.error("Kasa yazıcı hatası:", e));
+          setBillOpen(false);
+          router.push("/salon");
+        } else {
+          try {
+            await printReceiptHtml(kasaPrinter, cashierHtml);
+            setBillOpen(false);
+            router.push("/salon");
+          } catch {
+            setBillOpen(false);
+            setPrintFailure({
+              isOpen: true,
+              message: "Fiş yazıcısına ulaşılamadı: QZ Tray çalışmıyor.",
+              printerName: kasaPrinter,
+              html: cashierHtml,
+              onFinished: () => router.push("/salon"),
+            });
+          }
+        }
       } catch (printErr) {
         console.error("Kasa fişi basılamadı:", printErr);
+        setBillOpen(false);
+        router.push("/salon");
       }
+    } else {
+      setBillOpen(false);
+      router.push("/salon");
     }
-
-    setBillOpen(false);
-    router.push("/salon");
   }
 
   if (staffLoading || loading) return <p className="salon-muted" style={{ padding: "1rem" }}>Adisyon yükleniyor…</p>;
@@ -417,7 +479,7 @@ export function OrderEntryScreen({ tableId }: Props) {
           </div>
         </div>
 
-        <MenuPanel categories={categories} items={items} onAdd={addItem} />
+        <MenuPanel categories={categories} items={items} orderType="STORE" onAdd={addItem} />
       </div>
 
       <aside className="adisyon__cart">
@@ -533,6 +595,33 @@ export function OrderEntryScreen({ tableId }: Props) {
         allowEmptyClose={openOrderIds.length === 0 && sent.length === 0}
         onClose={() => setBillOpen(false)}
         onConfirm={(m) => void confirmPayment(m)}
+      />
+
+      <PrintFailureModal
+        isOpen={Boolean(printFailure?.isOpen)}
+        message={printFailure?.message}
+        onRetry={async () => {
+          if (printFailure) {
+            const { printReceiptHtml } = await import("@/lib/unified-printer");
+            await printReceiptHtml(printFailure.printerName, printFailure.html);
+            const onDone = printFailure.onFinished;
+            setPrintFailure(null);
+            onDone?.();
+          }
+        }}
+        onBrowserPrint={() => {
+          if (printFailure?.html) {
+            printHtmlViaBrowserWindow(printFailure.html);
+          }
+          const onDone = printFailure?.onFinished;
+          setPrintFailure(null);
+          onDone?.();
+        }}
+        onClose={() => {
+          const onDone = printFailure?.onFinished;
+          setPrintFailure(null);
+          onDone?.();
+        }}
       />
     </div>
   );

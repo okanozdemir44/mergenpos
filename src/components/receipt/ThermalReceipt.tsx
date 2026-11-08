@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { PAYMENT_METHOD_LABEL, type PaymentMethod } from "@/types/pos";
+import { PAYMENT_METHOD_LABEL, type CartOrderType, type PaymentMethod } from "@/types/pos";
 
 export type ReceiptItem = {
   quantity: number;
@@ -19,6 +19,7 @@ export type ThermalReceiptProps = {
   dateStr?: string;
   cashierName?: string;
   orderChannel?: "GEL AL" | "PAKET" | "TEZGAH" | "SALON";
+  orderType?: CartOrderType;
   customerName?: string | null;
   customerPhone?: string | null;
   deliveryAddress?: string | null;
@@ -37,6 +38,7 @@ export function ThermalReceipt({
   dateStr,
   cashierName = "KASİYER",
   orderChannel = "GEL AL",
+  orderType,
   customerName,
   customerPhone,
   deliveryAddress,
@@ -66,6 +68,24 @@ export function ThermalReceipt({
 
   return (
     <div className="thermal-receipt" aria-hidden="true">
+      {/* PAKET SERVİS Üst İbaresi */}
+      {(orderType === "DELIVERY" || orderChannel === "PAKET") && (
+        <div
+          className="receipt-delivery-banner"
+          style={{
+            textAlign: "center",
+            fontWeight: 900,
+            fontSize: "15px",
+            border: "2px solid #000",
+            padding: "4px 2px",
+            marginBottom: "8px",
+            letterSpacing: "1px",
+          }}
+        >
+          *** PAKET SERVİS ***
+        </div>
+      )}
+
       {/* Şube Adı */}
       <div className="receipt-header">
         <h1 className="receipt-branch">{branchName || "MERGEN POS"}</h1>

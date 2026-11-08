@@ -5,7 +5,8 @@ import type { BillLine, PaymentMethod } from "@/types/pos";
 import { PAYMENT_METHOD_LABEL } from "@/types/pos";
 import { formatTry } from "@/lib/money";
 
-import { printReceiptHtml, getCachedReceiptSettings } from "@/lib/unified-printer";
+import { printReceiptHtml, getCachedReceiptSettings, isDesktopPrinterAvailable, printHtmlViaBrowserWindow } from "@/lib/unified-printer";
+import { PrintFailureModal } from "@/components/receipt/PrintFailureModal";
 
 type Props = {
   restaurantName: string;
@@ -31,6 +32,7 @@ export function BillCloseModal({
   onConfirm,
 }: Props) {
   const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [printFailure, setPrintFailure] = useState<{ isOpen: boolean; message: string; html: string } | null>(null);
 
   const total = useMemo(
     () => lines.reduce((sum, l) => sum + l.unit_price * l.quantity, 0),
@@ -82,20 +84,41 @@ export function BillCloseModal({
 </body></html>`;
 
     const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
-    if (kasaPrinter) {
+    const isDesktop = isDesktopPrinterAvailable();
+
+    if (isDesktop && kasaPrinter) {
       try {
         await printReceiptHtml(kasaPrinter, html, { paperWidthMm });
         return;
       } catch (err) {
-        console.warn("Masaüstü/QZ bilgi fişi basılamadı, tarayıcı penceresine yönlendiriliyor:", err);
+        console.warn("Masaüstü bilgi fişi basılamadı, tarayıcı penceresine yönlendiriliyor:", err);
+      }
+    } else if (!isDesktop) {
+      // Tarayıcı ortamında QZ Tray ile dene; başarısızsa otomatik window.print'e düşme
+      if (kasaPrinter) {
+        try {
+          await printReceiptHtml(kasaPrinter, html, { paperWidthMm });
+          return;
+        } catch {
+          setPrintFailure({
+            isOpen: true,
+            message: "Fiş yazıcısına ulaşılamadı: QZ Tray çalışmıyor.",
+            html,
+          });
+          return;
+        }
+      } else {
+        setPrintFailure({
+          isOpen: true,
+          message: "Fiş yazıcısına ulaşılamadı: QZ Tray çalışmıyor.",
+          html,
+        });
+        return;
       }
     }
 
-    const browserHtml = html.replace("</body>", "<script>window.onload=()=>{window.print();}</script></body>");
-    const w = window.open("", "_blank", "noopener,noreferrer,width=420,height=640");
-    if (!w) return;
-    w.document.write(browserHtml);
-    w.document.close();
+    // Electron fallback: tarayıcı yazdırma penceresi
+    printHtmlViaBrowserWindow(html);
   }
 
   return (
@@ -194,6 +217,26 @@ export function BillCloseModal({
           </button>
         </div>
       </div>
+
+      <PrintFailureModal
+        isOpen={Boolean(printFailure?.isOpen)}
+        message={printFailure?.message}
+        onRetry={async () => {
+          const kasaPrinter = typeof window !== "undefined" ? localStorage.getItem("PRINTER_KASA") : null;
+          const settings = getCachedReceiptSettings();
+          if (kasaPrinter && printFailure?.html) {
+            await printReceiptHtml(kasaPrinter, printFailure.html, { paperWidthMm: settings.cashier.paperWidthMm });
+            setPrintFailure(null);
+          }
+        }}
+        onBrowserPrint={() => {
+          if (printFailure?.html) {
+            printHtmlViaBrowserWindow(printFailure.html);
+          }
+          setPrintFailure(null);
+        }}
+        onClose={() => setPrintFailure(null)}
+      />
     </div>
   );
 }

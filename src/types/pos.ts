@@ -1,5 +1,6 @@
 export type TableStatus = "empty" | "occupied";
 export type OrderType = "dine_in" | "takeaway" | "delivery";
+export type CartOrderType = "STORE" | "DELIVERY";
 export type OrderStatus = "hazirlaniyor" | "hazir" | "yolda" | "teslim_edildi" | "iptal";
 export type PaymentMethod = "cash" | "card" | "tokenflex" | "pluxee" | "edered" | "multinet" | "setcard" | "metropolcard" | "veresiye";
 export type CourierStatus = "queued" | "dispatched" | "delivered";
@@ -33,7 +34,9 @@ export type MenuItem = {
   restaurant_id: string;
   category_id: string;
   name: string;
-  price: number;
+  price: number; // Mevcut price kolonu (price_store olarak kabul edilir)
+  price_store?: number;
+  price_delivery?: number | null;
   description: string | null;
   is_available: boolean;
   sort_order: number;

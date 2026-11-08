@@ -85,7 +85,7 @@ export function generateCashierReceiptHtml(
     <html>
       <head><meta charset="utf-8"/><style>${css}</style></head>
       <body>
-        <div class="receipt-container">
+        <div class="receipt-container">${(data.orderType === "DELIVERY" || data.orderChannel === "PAKET") ? `\n          <div style="border: 2px solid #000; padding: 4px; text-align: center; font-size: 15px; font-weight: 900; margin-bottom: 8px; letter-spacing: 1px;">*** PAKET SERVİS ***</div>` : ""}
           <div class="receipt-header">
             <div class="receipt-brand">${data.branchName || "MERGEN POS"}</div>
           </div>
@@ -287,6 +287,11 @@ export function generateCashierReceiptHtml(
       <head><meta charset="utf-8"/><style>${css}</style></head>
       <body>
         <div class="receipt-container">
+          ${
+            data.orderType === "DELIVERY" || data.orderChannel === "PAKET"
+              ? `<div style="border: 2px solid #000; padding: 4px; text-align: center; font-size: 15px; font-weight: 900; margin-bottom: 8px; letter-spacing: 1px;">*** PAKET SERVİS ***</div>`
+              : ""
+          }
           <div class="receipt-header">
             ${cfg.header.showLogo && data.logoUrl ? `<div style="text-align: ${cfg.header.textAlign}; margin-bottom: 6px;"><img src="${escapeHtml(data.logoUrl)}" style="max-width: 120px; max-height: 50px; object-fit: contain;" /></div>` : ""}
             <div class="receipt-brand">${headerTitle}</div>
@@ -434,6 +439,11 @@ export function generateKitchenReceiptHtml(
       <head><style>${css}</style></head>
       <body>
         <div class="receipt-container">
+          ${
+            data.orderType === "DELIVERY" || data.orderChannel === "PAKET"
+              ? `<div style="border: 2px solid #000; padding: 4px; text-align: center; font-size: 15px; font-weight: 900; margin-bottom: 8px; letter-spacing: 1px;">*** PAKET SERVİS ***</div>`
+              : ""
+          }
           <div class="receipt-header">
             <div class="receipt-order-channel">${data.orderChannel}</div>
           </div>
@@ -554,6 +564,11 @@ export function generateKitchenReceiptHtml(
       <head><style>${css}</style></head>
       <body>
         <div class="receipt-container">
+          ${
+            data.orderType === "DELIVERY" || data.orderChannel === "PAKET"
+              ? `<div style="border: 2px solid #000; padding: 4px; text-align: center; font-size: 15px; font-weight: 900; margin-bottom: 8px; letter-spacing: 1px;">*** PAKET SERVİS ***</div>`
+              : ""
+          }
           ${
             cfg.header.showOrderChannel
               ? `<div class="receipt-header">
