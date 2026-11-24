@@ -19,6 +19,7 @@ type CartProps = {
   onChangeQty: (key: string, delta: number) => void;
   onChangeNote: (key: string, note: string) => void;
   onRemove: (key: string) => void;
+  onToggleIkram?: (key: string) => void;
   onClear?: () => void;
   onSubmit: () => void;
 };
@@ -37,6 +38,7 @@ export function CartPanel({
   onChangeQty,
   onChangeNote,
   onRemove,
+  onToggleIkram,
   onClear,
   onSubmit,
 }: CartProps) {
@@ -124,21 +126,36 @@ export function CartPanel({
             </p>
           </div>
         ) : (
-          lines.map((line) => (
+          lines.map((line) => {
+            const lineTotal = line.isIkram ? 0 : line.unitPrice * line.quantity;
+            return (
             <div key={line.key} className="cart-line">
               <div className="cart-line__top">
                 <strong>{line.name}</strong>
-                <button
-                  type="button"
-                  className="cart-line__remove"
-                  onClick={() => onRemove(line.key)}
-                  disabled={submitting}
-                >
-                  Sil
-                </button>
+                <div className="cart-line__actions">
+                  {onToggleIkram && (
+                    <button
+                      type="button"
+                      className={`cart-line__ikram${line.isIkram ? " cart-line__ikram--active" : ""}`}
+                      onClick={() => onToggleIkram(line.key)}
+                      disabled={submitting}
+                      title={line.isIkram ? "İkramı kaldır" : "İkram yap (ücretsiz)"}
+                    >
+                      İkram
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="cart-line__remove"
+                    onClick={() => onRemove(line.key)}
+                    disabled={submitting}
+                  >
+                    Sil
+                  </button>
+                </div>
               </div>
               <div className="cart-line__meta">
-                <span>{formatTry(line.unitPrice)}</span>
+                <span>{line.isIkram ? "İkram" : formatTry(line.unitPrice)}</span>
                 <div className="qty-control">
                   <button
                     type="button"
@@ -158,7 +175,7 @@ export function CartPanel({
                     +
                   </button>
                 </div>
-                <strong>{formatTry(line.unitPrice * line.quantity)}</strong>
+                <strong>{line.isIkram ? "İkram" : formatTry(lineTotal)}</strong>
               </div>
               <input
                 className="cart-line__note"
@@ -168,7 +185,8 @@ export function CartPanel({
                 onChange={(e) => onChangeNote(line.key, e.target.value)}
               />
             </div>
-          ))
+            );
+          })
         )}
       </div>
 

@@ -10,6 +10,8 @@ export type ReceiptItem = {
   note?: string | null;
   unitPrice: number;
   totalPrice?: number;
+  /** true ise fiyat yerine "İkram" yazılır */
+  isIkram?: boolean;
 };
 
 export type ThermalReceiptProps = {
@@ -155,7 +157,7 @@ export function ThermalReceipt({
                     {String(item.name || "").toUpperCase()}
                   </td>
                   <td style={{ textAlign: "right", verticalAlign: "top" }}>
-                    {lineTotal.toFixed(2)}
+                    {item.isIkram ? "İkram" : lineTotal.toFixed(2)}
                   </td>
                 </tr>
                 {item.note && (

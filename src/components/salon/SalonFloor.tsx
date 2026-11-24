@@ -46,7 +46,7 @@ export function SalonFloor() {
   cartRef.current = cart;
 
   const rawTotal = useMemo(
-    () => cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0),
+    () => cart.reduce((s, l) => (l.isIkram ? s : s + l.unitPrice * l.quantity), 0),
     [cart],
   );
 
@@ -126,7 +126,7 @@ export function SalonFloor() {
   function handleAddItem(item: MenuItem) {
     const activePrice = getMenuItemPrice(item, orderType);
     setCart((prev) => {
-      const existing = prev.find((l) => l.menuItemId === item.id && !l.note);
+      const existing = prev.find((l) => l.menuItemId === item.id && !l.note && !l.isIkram);
       if (existing) {
         return prev.map((l) =>
           l.key === existing.key ? { ...l, quantity: l.quantity + 1 } : l,
@@ -141,6 +141,7 @@ export function SalonFloor() {
           unitPrice: activePrice,
           quantity: 1,
           note: "",
+          isIkram: false,
         },
       ];
     });
@@ -168,6 +169,14 @@ export function SalonFloor() {
 
   function handleRemove(key: string) {
     setCart((prev) => prev.filter((line) => line.key !== key));
+  }
+
+  function handleToggleIkram(key: string) {
+    setCart((prev) =>
+      prev.map((line) =>
+        line.key === key ? { ...line, isIkram: !line.isIkram } : line,
+      ),
+    );
   }
 
   function handleClear() {
@@ -257,7 +266,7 @@ export function SalonFloor() {
       const orderId = orderRes.data.id;
       const assignedNumber = (orderRes.data as { order_number?: number })?.order_number ?? nextOrderNumber;
 
-      // 2. order_items tablosuna kalemleri kaydet
+      // 2. order_items tablosuna kalemleri kaydet (ikram satırlarında unit_price = 0)
       const { error: itemsError } = await supabase.from("order_items").insert(
         cartSnapshot.map((line) => ({
           restaurant_id: staff.restaurant_id,
@@ -265,7 +274,7 @@ export function SalonFloor() {
           menu_item_id: line.menuItemId,
           quantity: line.quantity,
           note: line.note.trim() || null,
-          unit_price: line.unitPrice,
+          unit_price: line.isIkram ? 0 : line.unitPrice,
           status: "pending",
         })),
       );
@@ -296,8 +305,9 @@ export function SalonFloor() {
           unit: "Tam",
           name: line.name,
           note: line.note.trim() || null,
-          unitPrice: line.unitPrice,
-          totalPrice: line.unitPrice * line.quantity,
+          unitPrice: line.isIkram ? 0 : line.unitPrice,
+          totalPrice: line.isIkram ? 0 : line.unitPrice * line.quantity,
+          isIkram: Boolean(line.isIkram),
         })),
         total: orderTotal,
         paymentMethod: selectedMethod,
@@ -502,6 +512,7 @@ export function SalonFloor() {
             onChangeQty={handleChangeQty}
             onChangeNote={handleChangeNote}
             onRemove={handleRemove}
+            onToggleIkram={handleToggleIkram}
             onClear={handleClear}
             onSubmit={() => void handleCheckout()}
           />

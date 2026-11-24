@@ -45,6 +45,9 @@ export function recalculateCartPrices(
  * Sepetin güncel toplam tutarını hesaplar.
  */
 export function calculateCartTotal(cart: CartLine[]): number {
-  return cart.reduce((sum, line) => sum + Number(line.unitPrice) * line.quantity, 0);
+  return cart.reduce((sum, line) => {
+    if (line.isIkram) return sum;
+    return sum + Number(line.unitPrice) * line.quantity;
+  }, 0);
 }
 

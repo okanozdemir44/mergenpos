@@ -75,7 +75,7 @@ export function generateCashierReceiptHtml(
         ${item.name}
         ${item.note ? `<span class="receipt-item-note">- ${item.note}</span>` : ""}
       </td>
-      <td class="col-price">*${formatTRY(item.totalPrice ?? (item.unitPrice ? item.quantity * item.unitPrice : 0))}</td>
+      <td class="col-price">${item.isIkram ? "İkram" : `*${formatTRY(item.totalPrice ?? (item.unitPrice ? item.quantity * item.unitPrice : 0))}`}</td>
     </tr>
   `
       )
@@ -276,7 +276,7 @@ export function generateCashierReceiptHtml(
         ${escapeHtml(item.name)}
         ${cfg.items.showNotes && item.note ? `<span class="receipt-item-note">- ${escapeHtml(item.note)}</span>` : ""}
       </td>
-      <td class="col-price">*${formatTRY(item.totalPrice ?? (item.unitPrice ? item.quantity * item.unitPrice : 0))}</td>
+      <td class="col-price">${item.isIkram ? "İkram" : `*${formatTRY(item.totalPrice ?? (item.unitPrice ? item.quantity * item.unitPrice : 0))}`}</td>
     </tr>
   `
     )

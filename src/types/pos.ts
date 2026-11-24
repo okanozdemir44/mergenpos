@@ -49,6 +49,8 @@ export type CartLine = {
   unitPrice: number;
   quantity: number;
   note: string;
+  /** true ise satır tutarı 0 sayılır; fişte "İkram" yazılır */
+  isIkram?: boolean;
 };
 
 export type KitchenTicket = {
